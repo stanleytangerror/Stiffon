@@ -27,9 +27,30 @@ def barycentric_coords(p, p0, p1, p2):
         result = Vec3f(w0, w1, w2)
     return result
 
+def projection_matrix(fov, aspect, near, far):
+    # 构建标准透视投影矩阵
+    inv_tan = 1.0 / ti.tan(fov * 0.5)
+    # 行主序：
+    return Mat44f([[inv_tan / aspect, 0.0, 0.0, 0.0],
+                   [0.0, inv_tan, 0.0, 0.0],
+                   [0.0, 0.0, (far + near) / (near - far), (2.0 * far * near) / (near - far)],
+                   [0.0, 0.0, -1.0, 0.0]])
+
+@ti.func
+def view_matrix(eye, target, up):
+    # 构建摄像机视图矩阵（LookAt）
+    z = ti.math.normalize(eye - target)
+    x = ti.math.normalize(ti.math.cross(up, z))
+    y = ti.math.cross(z, x)
+    # 行主序视图矩阵
+    return Mat44f([[x.x, y.x, z.x, 0.0],
+                   [x.y, y.y, z.y, 0.0],
+                   [x.z, y.z, z.z, 0.0],
+                   [-ti.math.dot(x, eye), -ti.math.dot(y, eye), -ti.math.dot(z, eye), 1.0]])
+
 window_size = Vec2i(512, 128)
 
-TConstBuffer = ti.types.struct(cur_time=ti.f32)
+TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
 constant_buffer = TConstBuffer.field(shape=())
 
 TVert = ti.types.struct(pos=Vec3f, color=Vec3f)
@@ -56,24 +77,23 @@ def interp(barycentric, v0, v1, v2):
 
 @ti.func
 def vs(vertex):
-    # 从 0 维常量缓冲读取当前时间
-    cur_time = constant_buffer[None].cur_time
-    # print(f"current time: {cur_time}")
 
-    world_mat = ti.math.rot_by_axis(Vec3f(0.0, 1.0, 0.0), cur_time)
-    # view_mat = Mat44f()
-    # proj_mat = Mat44f()
-    
+    world_mat = constant_buffer[None].world_mat
+    view_mat = constant_buffer[None].view_mat
+    proj_mat = constant_buffer[None].proj_mat
+
     pos = world_mat @ Vec4f(vertex.pos, 1.0)
-    # pos = view_mat @ pos
-    # pos = proj_mat @ pos
+    pos = view_mat @ pos
+    pos = proj_mat @ pos
 
     return TVsOut(pos=pos,
                   color=Vec4f(vertex.color, 1.0))
 
 @ti.func
 def interp_vsout(barycentric, v0, v1, v2):
-    return TVsOut(pos = interp(barycentric, v0.pos, v1.pos, v2.pos),
+    pos = interp(barycentric, v0.pos, v1.pos, v2.pos)
+    pos /= pos.w  # 透视除法
+    return TVsOut(pos = pos,
                   color = interp(barycentric, v0.color, v1.color, v2.color))
 
 @ti.func
@@ -111,15 +131,17 @@ def stage_rasterization():
 
         min_pixel_uv = max(0, int(ti.floor(min(p0, p1, p2))))
         max_pixel_uv = min(window_size - 1, int(ti.ceil(max(p0, p1, p2))))
-        # print(f"min_pixel_uv: {min_pixel_uv}, max_pixel_uv: {max_pixel_uv}")
 
         for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
             for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
                 p = Vec2f(x, y) + 0.5
                 w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
                 if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                    pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
-                    pixel_shading_input[x, y].clipped = 1
+                    z = interp(w, v0.pos.z, v1.pos.z, v2.pos.z)
+                    if z < depth_buffer[x, y]:  # 深度测试
+                        pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
+                        pixel_shading_input[x, y].clipped = 1
+                        depth_buffer[x, y] = z
 
 @ti.kernel
 def stage_pixel_shader():
@@ -138,13 +160,14 @@ def clear_buffers():
     for I in ti.grouped(screen_pixels):
         screen_pixels[I] = ti.Vector([0.0, 0.0, 0.0])
     for I in ti.grouped(depth_buffer):
-        depth_buffer[I] = 1e9
+        depth_buffer[I] = 1
 
 @ti.kernel
 def update_constant_buffer(t: ti.f32):
-    # 访问 0 维 StructField 时需使用 [None]
     constant_buffer[None].cur_time = t
-    print(f"update constant buffer time: {constant_buffer[None].cur_time}")
+    constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 4, window_size.x / window_size.y, 0.1, 100.0)
+    constant_buffer[None].view_mat = view_matrix(Vec3f(0.0, 0.0, 3.0), Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 1.0, 0.0))
+    constant_buffer[None].world_mat = ti.math.rot_by_axis(Vec3f(0.0, 1.0, 0.0), t)
 
 def main():
     # 构造 Box 的顶点缓冲和索引缓冲
