@@ -1,13 +1,14 @@
 import taichi as ti
 import numpy as np
+import time
 
 Vec3is = ti.types.vector(3, ti.i16)
 Vec2i = ti.types.vector(2, ti.i32)
 Vec2f = ti.types.vector(2, ti.f32)
 Vec3f = ti.types.vector(3, ti.f32)
 Vec4f = ti.types.vector(4, ti.f32)
-Mat33f = ti.types.matrix(3, 3, ti.f32)
-Mat44f = ti.types.matrix(4, 4, ti.f32)
+Mat33f = ti.math.mat3
+Mat44f = ti.math.mat4
 
 ti.init(arch=ti.gpu, debug=True, default_fp=ti.f32)
 
@@ -16,7 +17,7 @@ def edge(a, b, c):
     return (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)
 
 @ti.func
-def barycentric_coords(p0, p1, p2, p):
+def barycentric_coords(p, p0, p1, p2):
     result = Vec3f(0.0, 0.0, 0.0)
     area = edge(p0, p1, p2)
     if abs(area) >= 1e-10:
@@ -26,51 +27,66 @@ def barycentric_coords(p0, p1, p2, p):
         result = Vec3f(w0, w1, w2)
     return result
 
-width = 512
-height = 512
+window_size = Vec2i(512, 128)
 
-TVert = ti.types.struct(position=Vec3f)
+TConstBuffer = ti.types.struct(cur_time=ti.f32)
+constant_buffer = TConstBuffer.field(shape=())
+
+TVert = ti.types.struct(pos=Vec3f, color=Vec3f)
 vertex_buffer = TVert.field(shape=8)
 index_buffer = ti.field(dtype=Vec3is, shape=12)
 
-TInputAssem = ti.types.struct(v0=Vec4f, v1=Vec4f, v2=Vec4f)
+TInputAssem = ti.types.struct(v0=TVert, v1=TVert, v2=TVert)
 assembled_input = TInputAssem.field(shape=index_buffer.shape[0])
 
-TRasterInput = ti.types.struct(v0=Vec4f, v1=Vec4f, v2=Vec4f)
+TVsOut = ti.types.struct(pos=Vec4f, color=Vec4f)
+TRasterInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
 rasterize_input = TRasterInput.field(shape=assembled_input.shape[0])
 
-TPsInput = ti.types.struct(prim=Vec4f, clipped=ti.i8)
-pixel_shading_input = TPsInput.field(shape=(width, height))
+TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
+pixel_shading_input = TPsInput.field(shape=(window_size.x, window_size.y))
+output_merge_input = ti.field(dtype=Vec4f, shape=(window_size.x, window_size.y))
 
-output_merge_input = ti.field(dtype=Vec4f, shape=(width, height))
-
-screen_pixels = ti.Vector.field(3, ti.f32, shape=(width, height))
-depth_buffer = ti.field(dtype=ti.f32, shape=(width, height))
+screen_pixels = ti.Vector.field(3, ti.f32, shape=(window_size.x, window_size.y))
+depth_buffer = ti.field(dtype=ti.f32, shape=(window_size.x, window_size.y))
 
 @ti.func
-def interpoliate(barycentric, v0, v1, v2):
+def interp(barycentric, v0, v1, v2):
     return v0 * barycentric.x + v1 * barycentric.y + v2 * barycentric.z
 
 @ti.func
 def vs(vertex):
-    return Vec4f([(vertex.x + 1) * 0.5 * width,
-                      (vertex.y + 1) * 0.5 * height,
-                      vertex.z], 1.0)
+    # 从 0 维常量缓冲读取当前时间
+    cur_time = constant_buffer[None].cur_time
+    # print(f"current time: {cur_time}")
+
+    world_mat = ti.math.rot_by_axis(Vec3f(0.0, 1.0, 0.0), cur_time)
+    # view_mat = Mat44f()
+    # proj_mat = Mat44f()
+    
+    pos = world_mat @ Vec4f(vertex.pos, 1.0)
+    # pos = view_mat @ pos
+    # pos = proj_mat @ pos
+
+    return TVsOut(pos=pos,
+                  color=Vec4f(vertex.color, 1.0))
+
+@ti.func
+def interp_vsout(barycentric, v0, v1, v2):
+    return TVsOut(pos = interp(barycentric, v0.pos, v1.pos, v2.pos),
+                  color = interp(barycentric, v0.color, v1.color, v2.color))
 
 @ti.func
 def ps(vertex):
-    return Vec4f(0.5, 0.5, 0.5, 1.0)
+    return vertex.color
 
 @ti.kernel
 def stage_input_assembly():
     for i in index_buffer:
         indices = index_buffer[i]
-        v0 = vertex_buffer[indices.x].position
-        v1 = vertex_buffer[indices.y].position
-        v2 = vertex_buffer[indices.z].position
-        assembled_input[i].v0 = ti.Vector([v0.x, v0.y, v0.z, 1.0])
-        assembled_input[i].v1 = ti.Vector([v1.x, v1.y, v1.z, 1.0])
-        assembled_input[i].v2 = ti.Vector([v2.x, v2.y, v2.z, 1.0])
+        assembled_input[i].v0 = vertex_buffer[indices.x]
+        assembled_input[i].v1 = vertex_buffer[indices.y]
+        assembled_input[i].v2 = vertex_buffer[indices.z]
 
 @ti.kernel
 def stage_vertex_shader():
@@ -83,26 +99,26 @@ def stage_vertex_shader():
 @ti.kernel
 def stage_rasterization():
     for u, v in pixel_shading_input:
-        pixel_shading_input[u, v].prim = Vec4f(0.0, 0.0, 0.0, 1.0)
         pixel_shading_input[u, v].clipped = 0
 
     for prim_i in rasterize_input:
         v0 = rasterize_input[prim_i].v0
         v1 = rasterize_input[prim_i].v1
         v2 = rasterize_input[prim_i].v2
+        p0 = (v0.pos.xy * 0.5 + 0.5) * window_size
+        p1 = (v1.pos.xy * 0.5 + 0.5) * window_size
+        p2 = (v2.pos.xy * 0.5 + 0.5) * window_size
 
-        min_x = int(min(v0.x, v1.x, v2.x))
-        max_x = int(max(v0.x, v1.x, v2.x))
-        min_y = int(min(v0.y, v1.y, v2.y))
-        max_y = int(max(v0.y, v1.y, v2.y))
+        min_pixel_uv = max(0, int(ti.floor(min(p0, p1, p2))))
+        max_pixel_uv = min(window_size - 1, int(ti.ceil(max(p0, p1, p2))))
+        # print(f"min_pixel_uv: {min_pixel_uv}, max_pixel_uv: {max_pixel_uv}")
 
-        for x in range(min_x, max_x + 1):
-            for y in range(min_y, max_y + 1):
-                p = ti.Vector([x + 0.5, y + 0.5])
-                w = barycentric_coords(v0.xy, v1.xy, v2.xy, p)
+        for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
+            for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
+                p = Vec2f(x, y) + 0.5
+                w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
                 if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                    depth_buffer[x, y] = 1e9  # Reset depth buffer for this pixel
-                    pixel_shading_input[x, y].prim = interpoliate(w, v0, v1, v2)
+                    pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
                     pixel_shading_input[x, y].clipped = 1
 
 @ti.kernel
@@ -110,7 +126,7 @@ def stage_pixel_shader():
     for pixel_u, pixel_v in output_merge_input:
         ps_input = pixel_shading_input[pixel_u, pixel_v]
         if ps_input.clipped > 0.5:
-            output_merge_input[pixel_u, pixel_v] = ps(ps_input)
+            output_merge_input[pixel_u, pixel_v] = ps(ps_input.prim)
 
 @ti.kernel
 def stage_output_merge():
@@ -124,6 +140,11 @@ def clear_buffers():
     for I in ti.grouped(depth_buffer):
         depth_buffer[I] = 1e9
 
+@ti.kernel
+def update_constant_buffer(t: ti.f32):
+    # 访问 0 维 StructField 时需使用 [None]
+    constant_buffer[None].cur_time = t
+    print(f"update constant buffer time: {constant_buffer[None].cur_time}")
 
 def main():
     # 构造 Box 的顶点缓冲和索引缓冲
@@ -143,13 +164,19 @@ def main():
     ]
     # 将 Box 顶点写入顶点字段
     for i, v in enumerate(cube_vb):
-        vertex_buffer[i] = TVert(position=v)
+        vertex_buffer[i] = TVert(pos=v, color=v + 0.5)
     
     for i, v in enumerate(cube_ib):
         index_buffer[i] = Vec3is(v[0], v[1], v[2])
 
-    gui = ti.GUI("Rasterizer", (width, height))
+    start_time = time.time()
+    gui = ti.GUI("Renderer", (window_size.x, window_size.y))
     while gui.running:
+
+        t = time.time() - start_time
+
+        update_constant_buffer(t)
+        
         clear_buffers()
 
         stage_input_assembly()
