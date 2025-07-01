@@ -1,5 +1,6 @@
 import taichi as ti
 import numpy as np
+from scipy.spatial.transform.rotation import Rotation as R
 import time
 
 Vec3is = ti.types.vector(3, ti.i16)
@@ -7,8 +8,8 @@ Vec2i = ti.types.vector(2, ti.i32)
 Vec2f = ti.types.vector(2, ti.f32)
 Vec3f = ti.types.vector(3, ti.f32)
 Vec4f = ti.types.vector(4, ti.f32)
-Mat33f = ti.math.mat3
-Mat44f = ti.math.mat4
+Mat33f = ti.types.matrix(3, 3, ti.f32)
+Mat44f = ti.types.matrix(4, 4, ti.f32)
 
 ti.init(arch=ti.gpu, debug=True, default_fp=ti.f32)
 
@@ -27,28 +28,51 @@ def barycentric_coords(p, p0, p1, p2):
         result = Vec3f(w0, w1, w2)
     return result
 
+def normalized(v):
+    norm = np.linalg.norm(v)
+    if norm > 1e-10:
+        return v / norm
+    else:
+        return v
+
 def projection_matrix(fov, aspect, near, far):
-    # 构建标准透视投影矩阵
     inv_tan = 1.0 / ti.tan(fov * 0.5)
-    # 行主序：
-    return Mat44f([[inv_tan / aspect, 0.0, 0.0, 0.0],
-                   [0.0, inv_tan, 0.0, 0.0],
-                   [0.0, 0.0, (far + near) / (near - far), (2.0 * far * near) / (near - far)],
-                   [0.0, 0.0, -1.0, 0.0]])
+    mat = np.zeros(shape=(4, 4), dtype=np.float32)
+    mat[0, 0:4] = [inv_tan / aspect, 0.0, 0.0, 0.0]
+    mat[1, 0:4] = [0.0, inv_tan, 0.0, 0.0]
+    mat[2, 0:4] = [0.0, 0.0, -(far + near) / (far - near), -(2.0 * far * near) / (far - near)]
+    mat[3, 0:4] = [0.0, 0.0, -1.0, 0.0]
+    return mat
 
-@ti.func
 def view_matrix(eye, target, up):
-    # 构建摄像机视图矩阵（LookAt）
-    z = ti.math.normalize(eye - target)
-    x = ti.math.normalize(ti.math.cross(up, z))
-    y = ti.math.cross(z, x)
-    # 行主序视图矩阵
-    return Mat44f([[x.x, y.x, z.x, 0.0],
-                   [x.y, y.y, z.y, 0.0],
-                   [x.z, y.z, z.z, 0.0],
-                   [-ti.math.dot(x, eye), -ti.math.dot(y, eye), -ti.math.dot(z, eye), 1.0]])
+    # OpenGL view space:
+    # x: left, y: up, z: front
+    front = normalized(target - eye)
+    left = normalized(np.linalg.cross(up, front))
 
-window_size = Vec2i(512, 128)
+    inv_t = np.zeros(shape=(4, 4), dtype=np.float32)
+    inv_t[0, 0] = 1.0
+    inv_t[1, 1] = 1.0
+    inv_t[2, 2] = 1.0
+    inv_t[0:3, 3] = -eye
+    inv_t[3, 3] = 1.0
+
+    inv_r = np.zeros(shape=(4, 4), dtype=np.float32)
+    inv_r[0, 0:3] = left
+    inv_r[1, 0:3] = up
+    inv_r[2, 0:3] = front
+    inv_r[3, 3] = 1.0
+
+    return inv_r @ inv_t
+
+def world_matrix(t):
+    # world space: right hand, z up
+    mat = np.zeros(shape=(4, 4))
+    mat[0:3, 0:3] = R.from_rotvec(rotvec=np.array([0.0, 0.0, 1.0]) * t, degrees=False).as_matrix()
+    mat[3, 3] = 1.0
+    return mat
+
+window_size = Vec2i(1024, 768)
 
 TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
 constant_buffer = TConstBuffer.field(shape=())
@@ -82,9 +106,14 @@ def vs(vertex):
     view_mat = constant_buffer[None].view_mat
     proj_mat = constant_buffer[None].proj_mat
 
-    pos = world_mat @ Vec4f(vertex.pos, 1.0)
+    pos = Vec4f(vertex.pos, 1.0)
+    # print("pos0:", pos)
+    pos = world_mat @ pos
+    # print("pos1:", pos)
     pos = view_mat @ pos
+    # print("pos2:", pos)
     pos = proj_mat @ pos
+    # print("pos3:", pos)
 
     return TVsOut(pos=pos,
                   color=Vec4f(vertex.color, 1.0))
@@ -110,11 +139,31 @@ def stage_input_assembly():
 
 @ti.kernel
 def stage_vertex_shader():
+    # world_mat = constant_buffer[None].world_mat
+    # view_mat = constant_buffer[None].view_mat
+    # proj_mat = constant_buffer[None].proj_mat
+
+    # print("world_mat:", world_mat[0,:])
+    # print("world_mat:", world_mat[1,:])
+    # print("world_mat:", world_mat[2,:])
+    # print("world_mat:", world_mat[3,:])
+
+    # print("view_mat:", view_mat[0,:])
+    # print("view_mat:", view_mat[1,:])
+    # print("view_mat:", view_mat[2,:])
+    # print("view_mat:", view_mat[3,:])
+
+    # print("proj_mat:", proj_mat[0,:])
+    # print("proj_mat:", proj_mat[1,:])
+    # print("proj_mat:", proj_mat[2,:])
+    # print("proj_mat:", proj_mat[3,:])
+
     for prim_i in assembled_input:
         triangle_vertices = assembled_input[prim_i]
         rasterize_input[prim_i].v0 = vs(triangle_vertices.v0)
         rasterize_input[prim_i].v1 = vs(triangle_vertices.v1)
         rasterize_input[prim_i].v2 = vs(triangle_vertices.v2)
+        # print("v0:", rasterize_input[prim_i].v0.pos, "v1:", rasterize_input[prim_i].v1.pos, "v2:", rasterize_input[prim_i].v2.pos)
 
 @ti.kernel
 def stage_rasterization():
@@ -142,6 +191,7 @@ def stage_rasterization():
                         pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
                         pixel_shading_input[x, y].clipped = 1
                         depth_buffer[x, y] = z
+                    pixel_shading_input[x, y].prim.color = Vec4f(z * 0.2 + 0.5, 0.0, 0.0, 1.0)
 
 @ti.kernel
 def stage_pixel_shader():
@@ -162,12 +212,16 @@ def clear_buffers():
     for I in ti.grouped(depth_buffer):
         depth_buffer[I] = 1
 
-@ti.kernel
-def update_constant_buffer(t: ti.f32):
+def update_constant_buffer(t):
     constant_buffer[None].cur_time = t
-    constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 4, window_size.x / window_size.y, 0.1, 100.0)
-    constant_buffer[None].view_mat = view_matrix(Vec3f(0.0, 0.0, 3.0), Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 1.0, 0.0))
-    constant_buffer[None].world_mat = ti.math.rot_by_axis(Vec3f(0.0, 1.0, 0.0), t)
+    constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 2, window_size.x / window_size.y, 0.1, 100.0)
+    constant_buffer[None].view_mat = view_matrix(eye=np.array([0.0, -2.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    constant_buffer[None].world_mat = world_matrix(t)
+
+    # print("cur_time:", constant_buffer[None].cur_time)
+    # print("proj_mat:", constant_buffer[None].proj_mat)
+    # print("view_mat:", constant_buffer[None].view_mat)
+    # print("world_mat:", constant_buffer[None].world_mat)
 
 def main():
     # 构造 Box 的顶点缓冲和索引缓冲
