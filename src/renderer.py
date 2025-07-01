@@ -36,6 +36,10 @@ def normalized(v):
         return v
 
 def projection_matrix(fov, aspect, near, far):
+    # OpenGL clip space (NDC space):
+    # x: screen left, [-1, 1]
+    # y: screen up, [-1, 1]
+    # z: screen in, [-1, 1]
     inv_tan = 1.0 / ti.tan(fov * 0.5)
     mat = np.zeros(shape=(4, 4), dtype=np.float32)
     mat[0, 0:4] = [inv_tan / aspect, 0.0, 0.0, 0.0]
