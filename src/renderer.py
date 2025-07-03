@@ -195,7 +195,7 @@ def stage_rasterization():
                     pos = interp(w, v0.pos, v1.pos, v2.pos)
                     pos /= pos.w  
                     z = pos.z
-                    if z < depth_buffer[x, y]:
+                    if z <= depth_buffer[x, y]:
                         pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
                         pixel_shading_input[x, y].clipped = 1
                         depth_buffer[x, y] = z
@@ -216,6 +216,8 @@ def stage_output_merge():
 def clear_buffers():
     for I in ti.grouped(screen_pixels):
         screen_pixels[I] = ti.Vector([0.0, 0.0, 0.0])
+    for I in ti.grouped(output_merge_input):
+        output_merge_input[I] = Vec4f(0.0, 0.0, 0.0, 0.0)
     for I in ti.grouped(depth_buffer):
         depth_buffer[I] = 1
 
