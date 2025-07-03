@@ -19,13 +19,37 @@ def edge(a, b, c):
 
 @ti.func
 def barycentric_coords(p, p0, p1, p2):
-    result = Vec3f(0.0, 0.0, 0.0)
+    result = Vec3f(1.0, 0.0, 0.0)
     area = edge(p0, p1, p2)
-    if abs(area) >= 1e-10:
+    # 非退化三角形正常计算
+    if ti.abs(area) >= 1e-10:
         w0 = edge(p1, p2, p) / area
         w1 = edge(p2, p0, p) / area
         w2 = edge(p0, p1, p) / area
         result = Vec3f(w0, w1, w2)
+    else:
+        d01 = ti.math.dot(p1 - p0, p1 - p0)
+        d12 = ti.math.dot(p2 - p1, p2 - p1)
+        d20 = ti.math.dot(p0 - p2, p0 - p2)
+        a, b, idx = p0, p1, 2
+        if d01 >= d12 and d01 >= d20:
+            a, b, idx = p0, p1, 2
+        elif d12 >= d20:
+            a, b, idx = p1, p2, 0
+        else:
+            a, b, idx = p2, p0, 1
+        ba = b - a
+        denom = ti.math.dot(ba, ba)
+        t = 0.0
+        if denom >= 1e-10:
+            t = ti.math.dot(p - a, ba) / denom
+            t = ti.min(ti.max(t, 0.0), 1.0)
+        if idx == 2:
+            result = Vec3f(1 - t, t, 0.0)
+        elif idx == 0:
+            result = Vec3f(0.0, 1 - t, t)
+        else:
+            result = Vec3f(t, 0.0, 1 - t)
     return result
 
 def normalized(v):
@@ -36,21 +60,23 @@ def normalized(v):
         return v
 
 def projection_matrix(fov, aspect, near, far):
-    # OpenGL clip space (NDC space):
-    # x: screen left, [-1, 1]
-    # y: screen up, [-1, 1]
-    # z: screen in, [-1, 1]
+    # https://github.com/g-truc/glm/blob/master/glm/ext/matrix_clip_space.inl
+    # clip space (4D homogeneous):
+    # +x: screen left, [-1, 1]
+    # +y: screen up, [-1, 1]
+    # +z: screen in, [0, 1], near: 0, far: 1
     inv_tan = 1.0 / ti.tan(fov * 0.5)
     mat = np.zeros(shape=(4, 4), dtype=np.float32)
-    mat[0, 0:4] = [inv_tan / aspect, 0.0, 0.0, 0.0]
-    mat[1, 0:4] = [0.0, inv_tan, 0.0, 0.0]
-    mat[2, 0:4] = [0.0, 0.0, -(far + near) / (far - near), -(2.0 * far * near) / (far - near)]
-    mat[3, 0:4] = [0.0, 0.0, -1.0, 0.0]
+    mat[0, 0] = inv_tan / aspect
+    mat[1, 1] = inv_tan
+    mat[2, 2] = far / (far - near)
+    mat[3, 2] = 1
+    mat[2, 3] = -far * near / (far - near)
     return mat
 
 def view_matrix(eye, target, up):
-    # OpenGL view space:
-    # x: left, y: up, z: front
+    # view space:
+    # +x: left, +y: up, +z: front
     front = normalized(target - eye)
     left = normalized(np.linalg.cross(up, front))
 
@@ -76,7 +102,7 @@ def world_matrix(t):
     mat[3, 3] = 1.0
     return mat
 
-window_size = Vec2i(1024, 768)
+window_size = Vec2i(512, 384)
 
 TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
 constant_buffer = TConstBuffer.field(shape=())
@@ -111,13 +137,9 @@ def vs(vertex):
     proj_mat = constant_buffer[None].proj_mat
 
     pos = Vec4f(vertex.pos, 1.0)
-    # print("pos0:", pos)
     pos = world_mat @ pos
-    # print("pos1:", pos)
     pos = view_mat @ pos
-    # print("pos2:", pos)
     pos = proj_mat @ pos
-    # print("pos3:", pos)
 
     return TVsOut(pos=pos,
                   color=Vec4f(vertex.color, 1.0))
@@ -143,31 +165,11 @@ def stage_input_assembly():
 
 @ti.kernel
 def stage_vertex_shader():
-    # world_mat = constant_buffer[None].world_mat
-    # view_mat = constant_buffer[None].view_mat
-    # proj_mat = constant_buffer[None].proj_mat
-
-    # print("world_mat:", world_mat[0,:])
-    # print("world_mat:", world_mat[1,:])
-    # print("world_mat:", world_mat[2,:])
-    # print("world_mat:", world_mat[3,:])
-
-    # print("view_mat:", view_mat[0,:])
-    # print("view_mat:", view_mat[1,:])
-    # print("view_mat:", view_mat[2,:])
-    # print("view_mat:", view_mat[3,:])
-
-    # print("proj_mat:", proj_mat[0,:])
-    # print("proj_mat:", proj_mat[1,:])
-    # print("proj_mat:", proj_mat[2,:])
-    # print("proj_mat:", proj_mat[3,:])
-
     for prim_i in assembled_input:
         triangle_vertices = assembled_input[prim_i]
         rasterize_input[prim_i].v0 = vs(triangle_vertices.v0)
         rasterize_input[prim_i].v1 = vs(triangle_vertices.v1)
         rasterize_input[prim_i].v2 = vs(triangle_vertices.v2)
-        # print("v0:", rasterize_input[prim_i].v0.pos, "v1:", rasterize_input[prim_i].v1.pos, "v2:", rasterize_input[prim_i].v2.pos)
 
 @ti.kernel
 def stage_rasterization():
@@ -190,12 +192,13 @@ def stage_rasterization():
                 p = Vec2f(x, y) + 0.5
                 w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
                 if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                    z = interp(w, v0.pos.z, v1.pos.z, v2.pos.z)
-                    if z < depth_buffer[x, y]:  # 深度测试
+                    pos = interp(w, v0.pos, v1.pos, v2.pos)
+                    pos /= pos.w  
+                    z = pos.z
+                    if z < depth_buffer[x, y]:
                         pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
                         pixel_shading_input[x, y].clipped = 1
                         depth_buffer[x, y] = z
-                    pixel_shading_input[x, y].prim.color = Vec4f(z * 0.2 + 0.5, 0.0, 0.0, 1.0)
 
 @ti.kernel
 def stage_pixel_shader():
@@ -221,11 +224,6 @@ def update_constant_buffer(t):
     constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 2, window_size.x / window_size.y, 0.1, 100.0)
     constant_buffer[None].view_mat = view_matrix(eye=np.array([0.0, -2.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
     constant_buffer[None].world_mat = world_matrix(t)
-
-    # print("cur_time:", constant_buffer[None].cur_time)
-    # print("proj_mat:", constant_buffer[None].proj_mat)
-    # print("view_mat:", constant_buffer[None].view_mat)
-    # print("world_mat:", constant_buffer[None].world_mat)
 
 def main():
     # 构造 Box 的顶点缓冲和索引缓冲
