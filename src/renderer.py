@@ -64,14 +64,15 @@ def projection_matrix(fov, aspect, near, far):
     # clip space (4D homogeneous):
     # +x: screen left, [-1, 1]
     # +y: screen up, [-1, 1]
-    # +z: screen in, [0, 1], near: 0, far: 1
+    # +z: screen in
+    # z/w: [0, 1], near: 0, far: 1
     inv_tan = 1.0 / ti.tan(fov * 0.5)
     mat = np.zeros(shape=(4, 4), dtype=np.float32)
     mat[0, 0] = inv_tan / aspect
     mat[1, 1] = inv_tan
     mat[2, 2] = far / (far - near)
-    mat[3, 2] = 1
     mat[2, 3] = -far * near / (far - near)
+    mat[3, 2] = 1
     return mat
 
 def view_matrix(eye, target, up):
@@ -104,6 +105,8 @@ def world_matrix(t):
 
 window_size = Vec2i(512, 384)
 
+max_primitive_count = 1024
+
 TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
 constant_buffer = TConstBuffer.field(shape=())
 
@@ -115,8 +118,16 @@ TInputAssem = ti.types.struct(v0=TVert, v1=TVert, v2=TVert)
 assembled_input = TInputAssem.field(shape=index_buffer.shape[0])
 
 TVsOut = ti.types.struct(pos=Vec4f, color=Vec4f)
+TClipInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
+clip_input = TClipInput.field(shape=max_primitive_count)
+clip_input_counter = ti.field(dtype=ti.i32, shape=())
+
+clip_buffer_0 = TVsOut.field(shape=(max_primitive_count, 10))
+clip_buffer_1 = TVsOut.field(shape=(max_primitive_count, 10))
+
 TRasterInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
-rasterize_input = TRasterInput.field(shape=assembled_input.shape[0])
+rasterize_input = TRasterInput.field(shape=max_primitive_count)
+rasterize_input_counter = ti.field(dtype=ti.i32, shape=())
 
 TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
 pixel_shading_input = TPsInput.field(shape=(window_size.x, window_size.y))
@@ -126,8 +137,12 @@ screen_pixels = ti.Vector.field(3, ti.f32, shape=(window_size.x, window_size.y))
 depth_buffer = ti.field(dtype=ti.f32, shape=(window_size.x, window_size.y))
 
 @ti.func
-def interp(barycentric, v0, v1, v2):
+def interp3(barycentric, v0, v1, v2):
     return v0 * barycentric.x + v1 * barycentric.y + v2 * barycentric.z
+
+@ti.func
+def interp2(t, v0, v1):
+    return v0 * t.x + v1 * t.y
 
 @ti.func
 def vs(vertex):
@@ -145,11 +160,16 @@ def vs(vertex):
                   color=Vec4f(vertex.color, 1.0))
 
 @ti.func
-def interp_vsout(barycentric, v0, v1, v2):
-    pos = interp(barycentric, v0.pos, v1.pos, v2.pos)
-    pos /= pos.w  # 透视除法
+def interp_vsout_2(t, v0, v1):
+    pos = interp2(t, v0.pos, v1.pos)
     return TVsOut(pos = pos,
-                  color = interp(barycentric, v0.color, v1.color, v2.color))
+                  color = interp2(t, v0.color, v1.color))
+
+@ti.func
+def interp_vsout_3(t, v0, v1, v2):
+    pos = interp3(t, v0.pos, v1.pos, v2.pos)
+    return TVsOut(pos = pos,
+                  color = interp3(t, v0.color, v1.color, v2.color))
 
 @ti.func
 def ps(vertex):
@@ -165,18 +185,111 @@ def stage_input_assembly():
 
 @ti.kernel
 def stage_vertex_shader():
+    clip_input_counter[None] = 0
+
     for prim_i in assembled_input:
         triangle_vertices = assembled_input[prim_i]
-        rasterize_input[prim_i].v0 = vs(triangle_vertices.v0)
-        rasterize_input[prim_i].v1 = vs(triangle_vertices.v1)
-        rasterize_input[prim_i].v2 = vs(triangle_vertices.v2)
+        idx = ti.atomic_add(clip_input_counter[None], 1)
+        clip_input[idx].v0 = vs(triangle_vertices.v0)
+        clip_input[idx].v1 = vs(triangle_vertices.v1)
+        clip_input[idx].v2 = vs(triangle_vertices.v2)
+
+@ti.func
+def is_inside(v, plane):
+    result = ti.i8(0)
+    # 0:left,1:right,2:bottom,3:top,4:near,5:far
+    if plane == 0:
+        result = ti.i8(v.pos.x + v.pos.w >= 0)
+    if plane == 1:
+        result = ti.i8(v.pos.w - v.pos.x >= 0)
+    if plane == 2:
+        result = ti.i8(v.pos.y + v.pos.w >= 0)
+    if plane == 3:
+        result = ti.i8(v.pos.w - v.pos.y >= 0)
+    if plane == 4:
+        result = ti.i8(v.pos.z >= 0)
+    if plane == 5:
+        result = ti.i8(v.pos.w - v.pos.z >= 0)
+    return result
+
+@ti.func
+def intersect_vert(v1: TVsOut, v2: TVsOut, plane):
+    # 计算两个顶点在平面上的交点
+    # 计算点到平面距离
+    d1 = 0.0; d2 = 1.0
+    if plane == 0:
+        d1 = v1.pos.x + v1.pos.w; d2 = v2.pos.x + v2.pos.w
+    elif plane == 1:
+        d1 = v1.pos.w - v1.pos.x; d2 = v2.pos.w - v2.pos.x
+    elif plane == 2:
+        d1 = v1.pos.y + v1.pos.w; d2 = v2.pos.y + v2.pos.w
+    elif plane == 3:
+        d1 = v1.pos.w - v1.pos.y; d2 = v2.pos.w - v2.pos.y
+    elif plane == 4:
+        d1 = v1.pos.z; d2 = v2.pos.z
+    elif plane == 5:
+        d1 = v1.pos.w - v1.pos.z; d2 = v2.pos.w - v2.pos.z
+    t = d1 / (d1 - d2)
+    return interp_vsout_2(Vec2f(1.0 - t, t), v1, v2)
 
 @ti.kernel
 def stage_rasterization():
+    rasterize_input_counter[None] = 0
+    # 针对每个裁剪三角形执行 Sutherland-Hodgman 多边形裁剪
+    for prim_i in range(clip_input_counter[None]):
+        # 用固定数组承载临时顶点
+        clip_buffer_0[prim_i, 0] = clip_input[prim_i].v0
+        clip_buffer_0[prim_i, 1] = clip_input[prim_i].v1
+        clip_buffer_0[prim_i, 2] = clip_input[prim_i].v2
+        clip_buffer_0_count = 3
+
+        # 6个裁剪平面
+        for plane in range(6):
+
+            clip_buffer_1_count = 0
+
+            for j in range(clip_buffer_0_count):
+                curr = clip_buffer_0[prim_i, j]
+                next = clip_buffer_0[prim_i, (j + 1) % clip_buffer_0_count]
+                inside_curr = is_inside(curr, plane)
+                inside_next = is_inside(next, plane)
+
+                if inside_curr and inside_next:
+                    # 都在内侧，保留 next
+                    clip_buffer_1[prim_i, clip_buffer_1_count] = next
+                    clip_buffer_1_count += 1
+                elif inside_curr and not inside_next:
+                    # 边出内->外，添加交点
+                    clip_buffer_1[prim_i, clip_buffer_1_count] = intersect_vert(curr, next, plane)
+                    clip_buffer_1_count += 1
+                elif not inside_curr and inside_next:
+                    # 边外->内，添加交点和 next
+                    clip_buffer_1[prim_i, clip_buffer_1_count] = intersect_vert(curr, next, plane)
+                    clip_buffer_1_count += 1
+                    clip_buffer_1[prim_i, clip_buffer_1_count] = next
+                    clip_buffer_1_count += 1
+
+            # 更新多边形
+            if clip_buffer_0_count == 0:
+                break
+            
+            for j in range(clip_buffer_1_count):
+                clip_buffer_0[prim_i, j] = clip_buffer_1[prim_i, j]
+            clip_buffer_0_count = clip_buffer_1_count
+
+        # 三角化并写入 rasterize_input
+        if clip_buffer_0_count >= 3:
+            for k in range(1, clip_buffer_0_count - 1):
+                idx = ti.atomic_add(rasterize_input_counter[None], 1)
+                rasterize_input[idx].v0 = clip_buffer_0[prim_i, 0]
+                rasterize_input[idx].v1 = clip_buffer_0[prim_i, k]
+                rasterize_input[idx].v2 = clip_buffer_0[prim_i, k + 1]
+
+    # rasterize
     for u, v in pixel_shading_input:
         pixel_shading_input[u, v].clipped = 0
 
-    for prim_i in rasterize_input:
+    for prim_i in range(rasterize_input_counter[None]):
         v0 = rasterize_input[prim_i].v0
         v1 = rasterize_input[prim_i].v1
         v2 = rasterize_input[prim_i].v2
@@ -192,11 +305,12 @@ def stage_rasterization():
                 p = Vec2f(x, y) + 0.5
                 w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
                 if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                    pos = interp(w, v0.pos, v1.pos, v2.pos)
+                    pos = interp3(w, v0.pos, v1.pos, v2.pos)
                     pos /= pos.w  
                     z = pos.z
                     if z <= depth_buffer[x, y]:
-                        pixel_shading_input[x, y].prim = interp_vsout(w, v0, v1, v2)
+                        pixel_shading_input[x, y].prim = interp_vsout_3(w, v0, v1, v2)
+                        pixel_shading_input[x, y].prim.pos /= pixel_shading_input[x, y].prim.pos.w
                         pixel_shading_input[x, y].clipped = 1
                         depth_buffer[x, y] = z
 
