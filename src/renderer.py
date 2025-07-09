@@ -11,7 +11,12 @@ Vec4f = ti.types.vector(4, ti.f32)
 Mat33f = ti.types.matrix(3, 3, ti.f32)
 Mat44f = ti.types.matrix(4, 4, ti.f32)
 
-ti.init(arch=ti.gpu, debug=True, default_fp=ti.f32)
+def normalized(v):
+    norm = np.linalg.norm(v)
+    if norm > 1e-10:
+        return v / norm
+    else:
+        return v
 
 @ti.func
 def edge(a, b, c): 
@@ -52,13 +57,6 @@ def barycentric_coords(p, p0, p1, p2):
             result = Vec3f(t, 0.0, 1 - t)
     return result
 
-def normalized(v):
-    norm = np.linalg.norm(v)
-    if norm > 1e-10:
-        return v / norm
-    else:
-        return v
-
 def projection_matrix(fov, aspect, near, far):
     # https://github.com/g-truc/glm/blob/master/glm/ext/matrix_clip_space.inl
     # clip space (4D homogeneous):
@@ -74,6 +72,7 @@ def projection_matrix(fov, aspect, near, far):
     mat[2, 3] = -far * near / (far - near)
     mat[3, 2] = 1
     return mat
+    
 
 def view_matrix(eye, target, up):
     # view space:
@@ -103,38 +102,6 @@ def world_matrix(t):
     mat[3, 3] = 1.0
     return mat
 
-window_size = Vec2i(512, 384)
-
-max_primitive_count = 1024
-
-TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
-constant_buffer = TConstBuffer.field(shape=())
-
-TVert = ti.types.struct(pos=Vec3f, color=Vec3f)
-vertex_buffer = TVert.field(shape=8)
-index_buffer = ti.field(dtype=Vec3is, shape=12)
-
-TInputAssem = ti.types.struct(v0=TVert, v1=TVert, v2=TVert)
-assembled_input = TInputAssem.field(shape=index_buffer.shape[0])
-
-TVsOut = ti.types.struct(pos=Vec4f, color=Vec4f)
-TClipInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
-clip_input = TClipInput.field(shape=max_primitive_count)
-clip_input_counter = ti.field(dtype=ti.i32, shape=())
-
-clip_buffer_0 = TVsOut.field(shape=(max_primitive_count, 10))
-clip_buffer_1 = TVsOut.field(shape=(max_primitive_count, 10))
-
-TRasterInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
-rasterize_input = TRasterInput.field(shape=max_primitive_count)
-rasterize_input_counter = ti.field(dtype=ti.i32, shape=())
-
-TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
-pixel_shading_input = TPsInput.field(shape=(window_size.x, window_size.y))
-output_merge_input = ti.field(dtype=Vec4f, shape=(window_size.x, window_size.y))
-
-screen_pixels = ti.Vector.field(3, ti.f32, shape=(window_size.x, window_size.y))
-depth_buffer = ti.field(dtype=ti.f32, shape=(window_size.x, window_size.y))
 
 @ti.func
 def interp3(barycentric, v0, v1, v2):
@@ -143,56 +110,6 @@ def interp3(barycentric, v0, v1, v2):
 @ti.func
 def interp2(t, v0, v1):
     return v0 * t.x + v1 * t.y
-
-@ti.func
-def vs(vertex):
-
-    world_mat = constant_buffer[None].world_mat
-    view_mat = constant_buffer[None].view_mat
-    proj_mat = constant_buffer[None].proj_mat
-
-    pos = Vec4f(vertex.pos, 1.0)
-    pos = world_mat @ pos
-    pos = view_mat @ pos
-    pos = proj_mat @ pos
-
-    return TVsOut(pos=pos,
-                  color=Vec4f(vertex.color, 1.0))
-
-@ti.func
-def interp_vsout_2(t, v0, v1):
-    pos = interp2(t, v0.pos, v1.pos)
-    return TVsOut(pos = pos,
-                  color = interp2(t, v0.color, v1.color))
-
-@ti.func
-def interp_vsout_3(t, v0, v1, v2):
-    pos = interp3(t, v0.pos, v1.pos, v2.pos)
-    return TVsOut(pos = pos,
-                  color = interp3(t, v0.color, v1.color, v2.color))
-
-@ti.func
-def ps(vertex):
-    return vertex.color
-
-@ti.kernel
-def stage_input_assembly():
-    for i in index_buffer:
-        indices = index_buffer[i]
-        assembled_input[i].v0 = vertex_buffer[indices.x]
-        assembled_input[i].v1 = vertex_buffer[indices.y]
-        assembled_input[i].v2 = vertex_buffer[indices.z]
-
-@ti.kernel
-def stage_vertex_shader():
-    clip_input_counter[None] = 0
-
-    for prim_i in assembled_input:
-        triangle_vertices = assembled_input[prim_i]
-        idx = ti.atomic_add(clip_input_counter[None], 1)
-        clip_input[idx].v0 = vs(triangle_vertices.v0)
-        clip_input[idx].v1 = vs(triangle_vertices.v1)
-        clip_input[idx].v2 = vs(triangle_vertices.v2)
 
 @ti.func
 def is_inside(v, plane):
@@ -212,6 +129,59 @@ def is_inside(v, plane):
         result = ti.i8(v.pos.w - v.pos.z >= 0)
     return result
 
+
+@ti.dataclass
+class TConstBuffer:
+    cur_time: ti.f32
+    proj_mat: Mat44f
+    view_mat: Mat44f
+    world_mat: Mat44f
+
+@ti.dataclass
+class TVert:
+    pos: Vec3f
+    color: Vec3f
+
+@ti.dataclass
+class TInputAssem:
+    v0: TVert
+    v1: TVert
+    v2: TVert
+
+@ti.dataclass
+class TVsOut:
+    pos: Vec4f
+    color: Vec4f
+
+@ti.dataclass
+class TClipInput:
+    v0: TVsOut
+    v1: TVsOut
+    v2: TVsOut
+
+@ti.dataclass
+class TRasterInput:
+    v0: TVsOut
+    v1: TVsOut
+    v2: TVsOut
+
+@ti.dataclass
+class TPsInput:
+    prim: TVsOut
+    clipped: ti.f16
+
+@ti.func
+def interp_vsout_2(t, v0, v1):
+    pos = interp2(t, v0.pos, v1.pos)
+    return TVsOut(pos = pos,
+                color = interp2(t, v0.color, v1.color))
+
+@ti.func
+def interp_vsout_3(t, v0, v1, v2):
+    pos = interp3(t, v0.pos, v1.pos, v2.pos)
+    return TVsOut(pos = pos,
+                color = interp3(t, v0.color, v1.color, v2.color))
+    
 @ti.func
 def intersect_vert(v1: TVsOut, v2: TVsOut, plane):
     # 计算两个顶点在平面上的交点
@@ -232,116 +202,197 @@ def intersect_vert(v1: TVsOut, v2: TVsOut, plane):
     t = d1 / (d1 - d2)
     return interp_vsout_2(Vec2f(1.0 - t, t), v1, v2)
 
-@ti.kernel
-def stage_rasterization():
-    rasterize_input_counter[None] = 0
-    # 针对每个裁剪三角形执行 Sutherland-Hodgman 多边形裁剪
-    for prim_i in range(clip_input_counter[None]):
-        # 用固定数组承载临时顶点
-        clip_buffer_0[prim_i, 0] = clip_input[prim_i].v0
-        clip_buffer_0[prim_i, 1] = clip_input[prim_i].v1
-        clip_buffer_0[prim_i, 2] = clip_input[prim_i].v2
-        clip_buffer_0_count = 3
 
-        # 6个裁剪平面
-        for plane in range(6):
+@ti.data_oriented
+class Renderer:
 
-            clip_buffer_1_count = 0
+    def __init__(self, width, height):
+        self.window_size = Vec2i(width, height)
 
-            for j in range(clip_buffer_0_count):
-                curr = clip_buffer_0[prim_i, j]
-                next = clip_buffer_0[prim_i, (j + 1) % clip_buffer_0_count]
-                inside_curr = is_inside(curr, plane)
-                inside_next = is_inside(next, plane)
+        self.max_primitive_count = 1024
 
-                if inside_curr and inside_next:
-                    # 都在内侧，保留 next
-                    clip_buffer_1[prim_i, clip_buffer_1_count] = next
-                    clip_buffer_1_count += 1
-                elif inside_curr and not inside_next:
-                    # 边出内->外，添加交点
-                    clip_buffer_1[prim_i, clip_buffer_1_count] = intersect_vert(curr, next, plane)
-                    clip_buffer_1_count += 1
-                elif not inside_curr and inside_next:
-                    # 边外->内，添加交点和 next
-                    clip_buffer_1[prim_i, clip_buffer_1_count] = intersect_vert(curr, next, plane)
-                    clip_buffer_1_count += 1
-                    clip_buffer_1[prim_i, clip_buffer_1_count] = next
-                    clip_buffer_1_count += 1
+        # TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
+        self.constant_buffer = TConstBuffer.field(shape=())
 
-            # 更新多边形
-            if clip_buffer_0_count == 0:
-                break
-            
-            for j in range(clip_buffer_1_count):
-                clip_buffer_0[prim_i, j] = clip_buffer_1[prim_i, j]
-            clip_buffer_0_count = clip_buffer_1_count
+        # TVert = ti.types.struct(pos=Vec3f, color=Vec3f)
+        self.vertex_buffer = TVert.field(shape=8)
+        self.index_buffer = ti.field(dtype=Vec3is, shape=12)
 
-        # 三角化并写入 rasterize_input
-        if clip_buffer_0_count >= 3:
-            for k in range(1, clip_buffer_0_count - 1):
-                idx = ti.atomic_add(rasterize_input_counter[None], 1)
-                rasterize_input[idx].v0 = clip_buffer_0[prim_i, 0]
-                rasterize_input[idx].v1 = clip_buffer_0[prim_i, k]
-                rasterize_input[idx].v2 = clip_buffer_0[prim_i, k + 1]
+        # TInputAssem = ti.types.struct(v0=TVert, v1=TVert, v2=TVert)
+        self.assembled_input = TInputAssem.field(shape=self.index_buffer.shape[0])
 
-    # rasterize
-    for u, v in pixel_shading_input:
-        pixel_shading_input[u, v].clipped = 0
+        # TVsOut = ti.types.struct(pos=Vec4f, color=Vec4f)
+        # TClipInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
+        self.clip_input = TClipInput.field(shape=self.max_primitive_count)
+        self.clip_input_counter = ti.field(dtype=ti.i32, shape=())
 
-    for prim_i in range(rasterize_input_counter[None]):
-        v0 = rasterize_input[prim_i].v0
-        v1 = rasterize_input[prim_i].v1
-        v2 = rasterize_input[prim_i].v2
-        p0 = (v0.pos.xy * 0.5 + 0.5) * window_size
-        p1 = (v1.pos.xy * 0.5 + 0.5) * window_size
-        p2 = (v2.pos.xy * 0.5 + 0.5) * window_size
+        self.clip_buffer_0 = TVsOut.field(shape=(self.max_primitive_count, 10))
+        self.clip_buffer_1 = TVsOut.field(shape=(self.max_primitive_count, 10))
 
-        min_pixel_uv = max(0, int(ti.floor(min(p0, p1, p2))))
-        max_pixel_uv = min(window_size - 1, int(ti.ceil(max(p0, p1, p2))))
+        # TRasterInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
+        self.rasterize_input = TRasterInput.field(shape=self.max_primitive_count)
+        self.rasterize_input_counter = ti.field(dtype=ti.i32, shape=())
 
-        for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
-            for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
-                p = Vec2f(x, y) + 0.5
-                w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
-                if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                    pos = interp3(w, v0.pos, v1.pos, v2.pos)
-                    pos /= pos.w  
-                    z = pos.z
-                    if z <= depth_buffer[x, y]:
-                        pixel_shading_input[x, y].prim = interp_vsout_3(w, v0, v1, v2)
-                        pixel_shading_input[x, y].prim.pos /= pixel_shading_input[x, y].prim.pos.w
-                        pixel_shading_input[x, y].clipped = 1
-                        depth_buffer[x, y] = z
+        # TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
+        self.pixel_shading_input = TPsInput.field(shape=(self.window_size.x, self.window_size.y))
+        self.output_merge_input = ti.field(dtype=Vec4f, shape=(self.window_size.x, self.window_size.y))
 
-@ti.kernel
-def stage_pixel_shader():
-    for pixel_u, pixel_v in output_merge_input:
-        ps_input = pixel_shading_input[pixel_u, pixel_v]
-        if ps_input.clipped > 0.5:
-            output_merge_input[pixel_u, pixel_v] = ps(ps_input.prim)
+        self.screen_pixels = ti.Vector.field(3, ti.f32, shape=(self.window_size.x, self.window_size.y))
+        self.depth_buffer = ti.field(dtype=ti.f32, shape=(self.window_size.x, self.window_size.y))
 
-@ti.kernel
-def stage_output_merge():
-    for pixel_u, pixel_v in output_merge_input:
-        screen_pixels[pixel_u, pixel_v] = output_merge_input[pixel_u, pixel_v].xyz
+    @ti.func
+    def vs(self, vertex: TVert) -> TVsOut:
 
-@ti.kernel
-def clear_buffers():
-    for I in ti.grouped(screen_pixels):
-        screen_pixels[I] = ti.Vector([0.0, 0.0, 0.0])
-    for I in ti.grouped(output_merge_input):
-        output_merge_input[I] = Vec4f(0.0, 0.0, 0.0, 0.0)
-    for I in ti.grouped(depth_buffer):
-        depth_buffer[I] = 1
+        world_mat = self.constant_buffer[None].world_mat
+        view_mat = self.constant_buffer[None].view_mat
+        proj_mat = self.constant_buffer[None].proj_mat
 
-def update_constant_buffer(t):
-    constant_buffer[None].cur_time = t
-    constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 2, window_size.x / window_size.y, 0.1, 100.0)
-    constant_buffer[None].view_mat = view_matrix(eye=np.array([0.0, -2.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
-    constant_buffer[None].world_mat = world_matrix(t)
+        pos = Vec4f(vertex.pos, 1.0)
+        pos = world_mat @ pos
+        pos = view_mat @ pos
+        pos = proj_mat @ pos
+
+        return TVsOut(pos=pos,
+                    color=Vec4f(vertex.color, 1.0))
+
+    @ti.func
+    def ps(self, vertex: TVsOut) -> Vec4f:
+        return vertex.color
+
+    @ti.kernel
+    def stage_input_assembly(self):
+        for i in self.index_buffer:
+            indices = self.index_buffer[i]
+            self.assembled_input[i].v0 = self.vertex_buffer[indices.x]
+            self.assembled_input[i].v1 = self.vertex_buffer[indices.y]
+            self.assembled_input[i].v2 = self.vertex_buffer[indices.z]
+
+    @ti.kernel
+    def stage_vertex_shader(self):
+        self.clip_input_counter[None] = 0
+
+        for prim_i in self.assembled_input:
+            triangle_vertices = self.assembled_input[prim_i]
+            idx = ti.atomic_add(self.clip_input_counter[None], 1)
+            self.clip_input[idx].v0 = self.vs(triangle_vertices.v0)
+            self.clip_input[idx].v1 = self.vs(triangle_vertices.v1)
+            self.clip_input[idx].v2 = self.vs(triangle_vertices.v2)
+
+    @ti.kernel
+    def stage_rasterization(self):
+        self.rasterize_input_counter[None] = 0
+        # 针对每个裁剪三角形执行 Sutherland-Hodgman 多边形裁剪
+        for prim_i in range(self.clip_input_counter[None]):
+            # 用固定数组承载临时顶点
+            self.clip_buffer_0[prim_i, 0] = self.clip_input[prim_i].v0
+            self.clip_buffer_0[prim_i, 1] = self.clip_input[prim_i].v1
+            self.clip_buffer_0[prim_i, 2] = self.clip_input[prim_i].v2
+            clip_buffer_0_count = 3
+
+            # 6个裁剪平面
+            for plane in range(6):
+
+                clip_buffer_1_count = 0
+
+                for j in range(clip_buffer_0_count):
+                    curr = self.clip_buffer_0[prim_i, j]
+                    next = self.clip_buffer_0[prim_i, (j + 1) % clip_buffer_0_count]
+                    inside_curr = is_inside(curr, plane)
+                    inside_next = is_inside(next, plane)
+
+                    if inside_curr and inside_next:
+                        # 都在内侧，保留 next
+                        self.clip_buffer_1[prim_i, clip_buffer_1_count] = next
+                        clip_buffer_1_count += 1
+                    elif inside_curr and not inside_next:
+                        # 边出内->外，添加交点
+                        self.clip_buffer_1[prim_i, clip_buffer_1_count] = intersect_vert(curr, next, plane)
+                        clip_buffer_1_count += 1
+                    elif not inside_curr and inside_next:
+                        # 边外->内，添加交点和 next
+                        self.clip_buffer_1[prim_i, clip_buffer_1_count] = intersect_vert(curr, next, plane)
+                        clip_buffer_1_count += 1
+                        self.clip_buffer_1[prim_i, clip_buffer_1_count] = next
+                        clip_buffer_1_count += 1
+
+                # 更新多边形
+                if clip_buffer_0_count == 0:
+                    break
+                
+                for j in range(clip_buffer_1_count):
+                    self.clip_buffer_0[prim_i, j] = self.clip_buffer_1[prim_i, j]
+                clip_buffer_0_count = clip_buffer_1_count
+
+            # 三角化并写入 rasterize_input
+            if clip_buffer_0_count >= 3:
+                for k in range(1, clip_buffer_0_count - 1):
+                    idx = ti.atomic_add(self.rasterize_input_counter[None], 1)
+                    self.rasterize_input[idx].v0 = self.clip_buffer_0[prim_i, 0]
+                    self.rasterize_input[idx].v1 = self.clip_buffer_0[prim_i, k]
+                    self.rasterize_input[idx].v2 = self.clip_buffer_0[prim_i, k + 1]
+
+        # rasterize
+        for u, v in self.pixel_shading_input:
+            self.pixel_shading_input[u, v].clipped = 0.0
+
+        for prim_i in range(self.rasterize_input_counter[None]):
+            v0 = self.rasterize_input[prim_i].v0
+            v1 = self.rasterize_input[prim_i].v1
+            v2 = self.rasterize_input[prim_i].v2
+            p0 = (v0.pos.xy * 0.5 + 0.5) * self.window_size
+            p1 = (v1.pos.xy * 0.5 + 0.5) * self.window_size
+            p2 = (v2.pos.xy * 0.5 + 0.5) * self.window_size
+
+            min_pixel_uv = max(0, int(ti.floor(min(p0, p1, p2))))
+            max_pixel_uv = min(self.window_size - 1, int(ti.ceil(max(p0, p1, p2))))
+
+            for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
+                for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
+                    p = Vec2f(x, y) + 0.5
+                    w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
+                    if w.x >= 0 and w.y >= 0 and w.z >= 0:
+                        pos = interp3(w, v0.pos, v1.pos, v2.pos)
+                        pos /= pos.w  
+                        z = pos.z
+                        if z <= self.depth_buffer[x, y]:
+                            self.pixel_shading_input[x, y].prim = interp_vsout_3(w, v0, v1, v2)
+                            self.pixel_shading_input[x, y].prim.pos /= self.pixel_shading_input[x, y].prim.pos.w
+                            self.pixel_shading_input[x, y].clipped = 1.0
+                            self.depth_buffer[x, y] = z
+
+    @ti.kernel
+    def stage_pixel_shader(self):
+        for pixel_u, pixel_v in self.output_merge_input:
+            ps_input = self.pixel_shading_input[pixel_u, pixel_v]
+            if ps_input.clipped > 0.5:
+                self.output_merge_input[pixel_u, pixel_v] = self.ps(ps_input.prim)
+
+    @ti.kernel
+    def stage_output_merge(self):
+        for pixel_u, pixel_v in self.output_merge_input:
+            self.screen_pixels[pixel_u, pixel_v] = self.output_merge_input[pixel_u, pixel_v].xyz
+
+    @ti.kernel
+    def clear_buffers(self):
+        for I in ti.grouped(self.screen_pixels):
+            self.screen_pixels[I] = ti.Vector([0.0, 0.0, 0.0])
+        for I in ti.grouped(self.output_merge_input):
+            self.output_merge_input[I] = Vec4f(0.0, 0.0, 0.0, 0.0)
+        for I in ti.grouped(self.depth_buffer):
+            self.depth_buffer[I] = 1
+
+def update_constant_buffer(renderer, t):
+    renderer.constant_buffer[None].cur_time = t
+    renderer.constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 2, renderer.window_size.x / renderer.window_size.y, 0.1, 100.0)
+    renderer.constant_buffer[None].view_mat = view_matrix(eye=np.array([0.0, -2.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    renderer.constant_buffer[None].world_mat = world_matrix(t)
+
 
 def main():
+    ti.init(arch=ti.gpu, debug=True, default_fp=ti.f32)
+
+    renderer = Renderer(width=800, height=600)
+
     # 构造 Box 的顶点缓冲和索引缓冲
     cube_vb = [
         ti.Vector([-0.5, -0.5, -0.5]), ti.Vector([0.5, -0.5, -0.5]),
@@ -359,32 +410,32 @@ def main():
     ]
     # 将 Box 顶点写入顶点字段
     for i, v in enumerate(cube_vb):
-        vertex_buffer[i] = TVert(pos=v, color=v + 0.5)
+        renderer.vertex_buffer[i] = TVert(pos=v, color=v + 0.5)
     
     for i, v in enumerate(cube_ib):
-        index_buffer[i] = Vec3is(v[0], v[1], v[2])
+        renderer.index_buffer[i] = Vec3is(v[0], v[1], v[2])
 
     start_time = time.time()
-    gui = ti.GUI("Renderer", (window_size.x, window_size.y))
+    gui = ti.GUI("Renderer", (renderer.window_size.x, renderer.window_size.y))
     while gui.running:
 
         t = time.time() - start_time
 
-        update_constant_buffer(t)
+        update_constant_buffer(renderer, t)
         
-        clear_buffers()
+        renderer.clear_buffers()
 
-        stage_input_assembly()
+        renderer.stage_input_assembly()
 
-        stage_vertex_shader()
+        renderer.stage_vertex_shader()
 
-        stage_rasterization()
+        renderer.stage_rasterization()
 
-        stage_pixel_shader()
+        renderer.stage_pixel_shader()
 
-        stage_output_merge()
+        renderer.stage_output_merge()
 
-        gui.set_image(screen_pixels)
+        gui.set_image(renderer.screen_pixels)
         gui.show()
 
 
