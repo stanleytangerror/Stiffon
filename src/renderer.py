@@ -239,7 +239,7 @@ class Renderer:
         # TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
         self.output_merge_input = ti.field(dtype=Vec4f, shape=(self.window_size.x, self.window_size.y))
 
-        self.screen_pixels = ti.Vector.field(3, ti.f32, shape=(self.window_size.x, self.window_size.y))
+        self.back_buffer = ti.Vector.field(3, ti.f32, shape=(self.window_size.x, self.window_size.y))
         self.depth_buffer = ti.field(dtype=ti.f32, shape=(self.window_size.x, self.window_size.y))
 
     @ti.func
@@ -374,12 +374,10 @@ class Renderer:
     @ti.kernel
     def stage_output_merge(self):
         for pixel_u, pixel_v in self.output_merge_input:
-            self.screen_pixels[pixel_u, pixel_v] = self.output_merge_input[pixel_u, pixel_v].xyz
+            self.back_buffer[pixel_u, pixel_v] = self.output_merge_input[pixel_u, pixel_v].xyz
 
     @ti.kernel
     def clear_buffers(self):
-        for I in ti.grouped(self.screen_pixels):
-            self.screen_pixels[I] = ti.Vector([0.0, 0.0, 0.0])
         for I in ti.grouped(self.output_merge_input):
             self.output_merge_input[I] = Vec4f(0.0, 0.0, 0.0, 0.0)
         for I in ti.grouped(self.depth_buffer):
@@ -393,6 +391,8 @@ def update_constant_buffer(renderer, t):
 
 
 def main():
+    program_start_time = time.time()
+
     enable_kernel_profile = False
     ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=enable_kernel_profile)
 
@@ -420,13 +420,15 @@ def main():
     for i, v in enumerate(cube_ib):
         renderer.index_buffer[i] = Vec3is(v[0], v[1], v[2])
 
-    start_time = time.time()
-    gui = ti.GUI("Renderer", (renderer.window_size.x, renderer.window_size.y))
+    gui = ti.GUI("Renderer", res=(renderer.window_size.x, renderer.window_size.y), fast_gui=True)
+    
     while gui.running:
 
-        t = time.time() - start_time
+        ti.sync()
 
-        update_constant_buffer(renderer, t)
+        frame_start_time = time.time()
+
+        update_constant_buffer(renderer, frame_start_time - program_start_time)
 
         if enable_kernel_profile:
             ti.profiler.clear_kernel_profiler_info()  #
@@ -434,20 +436,22 @@ def main():
         renderer.clear_buffers()
 
         renderer.stage_input_assembly()
-
         renderer.stage_vertex_shader()
-
         renderer.stage_geometry_process()
-
         renderer.stage_rasterization_and_pixel_shader()
-
         renderer.stage_output_merge()
 
         if enable_kernel_profile:
             ti.profiler.print_kernel_profiler_info('trace')
 
-        gui.set_image(renderer.screen_pixels)
+        ti.sync()
+
+        print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+
+        gui.set_image(renderer.back_buffer)
         gui.show()
+
+        print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
 
 if __name__ == "__main__":
