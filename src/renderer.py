@@ -208,9 +208,12 @@ class Renderer:
 
     def __init__(self, width, height):
         self.window_size = Vec2i(width, height)
+        
+        self.tile_pixel_size = Vec2i(4, 4)
+        self.tile_count = Vec2i(ti.ceil(self.window_size / self.tile_pixel_size))
 
         self.max_primitive_count = 1024
-
+        
         # TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
         self.constant_buffer = TConstBuffer.field(shape=())
 
@@ -234,7 +237,6 @@ class Renderer:
         self.rasterize_input_counter = ti.field(dtype=ti.i32, shape=())
 
         # TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
-        self.pixel_shading_input = TPsInput.field(shape=(self.window_size.x, self.window_size.y))
         self.output_merge_input = ti.field(dtype=Vec4f, shape=(self.window_size.x, self.window_size.y))
 
         self.screen_pixels = ti.Vector.field(3, ti.f32, shape=(self.window_size.x, self.window_size.y))
@@ -279,7 +281,7 @@ class Renderer:
             self.clip_input[idx].v2 = self.vs(triangle_vertices.v2)
 
     @ti.kernel
-    def stage_rasterization(self):
+    def stage_geometry_process(self):
         self.rasterize_input_counter[None] = 0
         # 针对每个裁剪三角形执行 Sutherland-Hodgman 多边形裁剪
         for prim_i in range(self.clip_input_counter[None]):
@@ -331,41 +333,43 @@ class Renderer:
                     self.rasterize_input[idx].v1 = self.clip_buffer_0[prim_i, k]
                     self.rasterize_input[idx].v2 = self.clip_buffer_0[prim_i, k + 1]
 
-        # rasterize
-        for u, v in self.pixel_shading_input:
-            self.pixel_shading_input[u, v].clipped = 0.0
-
-        for prim_i in range(self.rasterize_input_counter[None]):
-            v0 = self.rasterize_input[prim_i].v0
-            v1 = self.rasterize_input[prim_i].v1
-            v2 = self.rasterize_input[prim_i].v2
-            p0 = (v0.pos.xy * 0.5 + 0.5) * self.window_size
-            p1 = (v1.pos.xy * 0.5 + 0.5) * self.window_size
-            p2 = (v2.pos.xy * 0.5 + 0.5) * self.window_size
-
-            min_pixel_uv = max(0, int(ti.floor(min(p0, p1, p2))))
-            max_pixel_uv = min(self.window_size - 1, int(ti.ceil(max(p0, p1, p2))))
-
-            for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
-                for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
-                    p = Vec2f(x, y) + 0.5
-                    w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
-                    if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                        pos = interp3(w, v0.pos, v1.pos, v2.pos)
-                        pos /= pos.w  
-                        z = pos.z
-                        if z <= self.depth_buffer[x, y]:
-                            self.pixel_shading_input[x, y].prim = interp_vsout_3(w, v0, v1, v2)
-                            self.pixel_shading_input[x, y].prim.pos /= self.pixel_shading_input[x, y].prim.pos.w
-                            self.pixel_shading_input[x, y].clipped = 1.0
-                            self.depth_buffer[x, y] = z
-
     @ti.kernel
-    def stage_pixel_shader(self):
-        for pixel_u, pixel_v in self.output_merge_input:
-            ps_input = self.pixel_shading_input[pixel_u, pixel_v]
-            if ps_input.clipped > 0.5:
-                self.output_merge_input[pixel_u, pixel_v] = self.ps(ps_input.prim)
+    def stage_rasterization_and_pixel_shader(self):
+
+        for tile_x, tile_y in ti.ndrange(self.tile_count.x, self.tile_count.y):
+            for prim_i in range(self.rasterize_input_counter[None]):
+                # 计算当前 tile 的像素范围
+                tile_min = Vec2i(tile_x, tile_y) * self.tile_pixel_size
+                tile_max = (Vec2i(tile_x, tile_y) + Vec2i(1, 1)) * self.tile_pixel_size - Vec2i(1, 1)
+
+                # 遍历当前三角形的像素范围
+                v0 = self.rasterize_input[prim_i].v0
+                v1 = self.rasterize_input[prim_i].v1
+                v2 = self.rasterize_input[prim_i].v2
+                p0 = (v0.pos.xy * 0.5 + 0.5) * self.window_size
+                p1 = (v1.pos.xy * 0.5 + 0.5) * self.window_size
+                p2 = (v2.pos.xy * 0.5 + 0.5) * self.window_size
+
+                min_pixel_uv = max(tile_min, int(ti.floor(min(p0, p1, p2))))
+                max_pixel_uv = min(self.window_size - 1, tile_max, int(ti.ceil(max(p0, p1, p2))))
+
+                for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
+                    for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
+                        p = Vec2f(x, y) + 0.5
+                        w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
+                        if w.x >= 0 and w.y >= 0 and w.z >= 0:
+                            pos = interp3(w, v0.pos, v1.pos, v2.pos)
+                            pos /= pos.w  
+                            z = pos.z
+
+                            old_z = ti.atomic_min(self.depth_buffer[x, y], z)
+                            if z <= old_z:
+                                ps_input = TPsInput()
+                                ps_input.prim = interp_vsout_3(w, v0, v1, v2)
+                                ps_input.prim.pos /= ps_input.prim.pos.w
+                                
+                                self.output_merge_input[x, y] = self.ps(ps_input.prim)
+                                self.depth_buffer[x, y] = z
 
     @ti.kernel
     def stage_output_merge(self):
@@ -389,7 +393,8 @@ def update_constant_buffer(renderer, t):
 
 
 def main():
-    ti.init(arch=ti.gpu, debug=True, default_fp=ti.f32)
+    enable_kernel_profile = False
+    ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=enable_kernel_profile)
 
     renderer = Renderer(width=800, height=600)
 
@@ -422,6 +427,9 @@ def main():
         t = time.time() - start_time
 
         update_constant_buffer(renderer, t)
+
+        if enable_kernel_profile:
+            ti.profiler.clear_kernel_profiler_info()  #
         
         renderer.clear_buffers()
 
@@ -429,11 +437,14 @@ def main():
 
         renderer.stage_vertex_shader()
 
-        renderer.stage_rasterization()
+        renderer.stage_geometry_process()
 
-        renderer.stage_pixel_shader()
+        renderer.stage_rasterization_and_pixel_shader()
 
         renderer.stage_output_merge()
+
+        if enable_kernel_profile:
+            ti.profiler.print_kernel_profiler_info('trace')
 
         gui.set_image(renderer.screen_pixels)
         gui.show()
