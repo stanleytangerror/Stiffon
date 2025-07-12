@@ -400,28 +400,41 @@ class Renderer:
             self.back_buffer[pixel_u, pixel_v] = self.color_buffer[pixel_u, pixel_v].xyz
     
     @ti.kernel
-    def copy_vertices_to_buffer(self, vertices: ti.types.ndarray(), vert_start: ti.i32, cb_index: ti.i32):
-        for i in range(vertices.shape[0]):
+    def copy_vertices_to_buffer(self, vertices: ti.types.ndarray(), vert_start: ti.i32, vert_count: ti.i32, cb_index: ti.i32):
+        for i in ti.ndrange(vert_count):
             v = ti.Vector([vertices[i, 0], vertices[i, 1], vertices[i, 2]], ti.f32)
             self.vertex_buffer[vert_start + i] = TVert(pos=v, color=v + 0.5, cb_index=cb_index)
     
     @ti.kernel
-    def copy_indices_to_buffer(self, indices: ti.types.ndarray(), index_start: ti.i32, vert_start: ti.i32):
-        for i in range(indices.shape[0]):
+    def copy_indices_to_buffer(self, indices: ti.types.ndarray(), index_start: ti.i32, index_count: ti.i32, vert_start: ti.i32):
+        for i in ti.ndrange(index_count):
             self.index_buffer[index_start + i] = Vec3is(indices[i, 0], indices[i, 1], indices[i, 2]) + vert_start
+    
+    @ti.kernel
+    def set_instance_const_buffer(self, cb_index: ti.i32, world_mat: ti.types.ndarray()):
+        for i, j in ti.ndrange(4, 4):
+            self.instance_const_buffer[cb_index].world_mat[i, j] = world_mat[i, j]
+    
+    @ti.kernel
+    def set_global_const_buffer(self, cur_time: ti.f32, proj_mat: ti.types.ndarray(), view_mat: ti.types.ndarray()):
+        self.global_const_buffer[None].cur_time = cur_time
+        for i, j in ti.ndrange(4, 4):
+            self.global_const_buffer[None].proj_mat[i, j] = proj_mat[i, j]
+            self.global_const_buffer[None].view_mat[i, j] = view_mat[i, j]
     
     def draw(self, transform, vertices, indices):
         cb_idx = self.instance_const_buffer_counter[None]
-        self.instance_const_buffer[cb_idx] = TInstanceConstBuffer(world_mat=transform)
+        # 使用kernel来设置变换矩阵
+        self.set_instance_const_buffer(cb_idx, transform)
         self.instance_const_buffer_counter[None] += 1
 
         vert_start = self.vertex_buffer_counter[None]
         self.vertex_buffer_counter[None] += len(vertices)
-        self.copy_vertices_to_buffer(vertices, vert_start, cb_idx)
+        self.copy_vertices_to_buffer(vertices, vert_start, len(vertices), cb_idx)
     
         index_start = self.index_buffer_counter[None]
         self.index_buffer_counter[None] += len(indices)
-        self.copy_indices_to_buffer(indices, index_start, vert_start)
+        self.copy_indices_to_buffer(indices, index_start, len(indices), vert_start)
 
 def main():
     program_start_time = time.time()
@@ -450,19 +463,26 @@ def main():
     
     while gui.running:
         
+        frame_start_time = time.time()
+        relative_time = frame_start_time - program_start_time 
+
         ti.sync()
 
         if enable_kernel_profile:
             ti.profiler.clear_kernel_profiler_info()  #
 
+        ti.sync()
+
         renderer.begin_frame()
-        frame_start_time = time.time()
 
-        renderer.global_const_buffer[None].cur_time = frame_start_time - program_start_time
-        renderer.global_const_buffer[None].proj_mat = projection_matrix(ti.math.pi * 0.7, renderer.window_size.x / renderer.window_size.y, 0.1, 100.0)
-        renderer.global_const_buffer[None].view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+        print(f"Begin frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
-        relative_time = frame_start_time - program_start_time 
+        # 使用kernel来设置全局常量缓冲区
+        proj_mat = projection_matrix(ti.math.pi * 0.7, renderer.window_size.x / renderer.window_size.y, 0.1, 100.0)
+        view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+        renderer.set_global_const_buffer(relative_time, proj_mat, view_mat)
+
+        print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         renderer.draw(world_matrix(
                                 translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
@@ -482,23 +502,25 @@ def main():
                                 scale=np.sin(relative_time) * 0.5 + 0.5), 
                               cube_vb, cube_ib)
         
+        print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+
         renderer.stage_input_assembly()
         renderer.stage_vertex_shader()
         renderer.stage_geometry_process()
         renderer.stage_rasterization_and_pixel_shader()
         renderer.stage_output_merge()
 
+        print(f"Execute time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+
         if enable_kernel_profile:
             ti.profiler.print_kernel_profiler_info('trace')
 
         ti.sync()
 
-        # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
-
         gui.set_image(renderer.back_buffer)
         gui.show()
 
-        # print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
 
 if __name__ == "__main__":
