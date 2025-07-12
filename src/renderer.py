@@ -79,6 +79,7 @@ def view_matrix(eye, target, up):
     # +x: left, +y: up, +z: front
     front = normalized(target - eye)
     left = normalized(np.linalg.cross(up, front))
+    up = normalized(np.linalg.cross(front, left))
 
     inv_t = np.zeros(shape=(4, 4), dtype=np.float32)
     inv_t[0, 0] = 1.0
@@ -95,10 +96,11 @@ def view_matrix(eye, target, up):
 
     return inv_r @ inv_t
 
-def world_matrix(t):
+def world_matrix(rotate, translate=np.zeros(3), scale=1.0):
     # world space: right hand, z up
     mat = np.zeros(shape=(4, 4))
-    mat[0:3, 0:3] = R.from_rotvec(rotvec=np.array([0.0, 0.0, 1.0]) * t, degrees=False).as_matrix()
+    mat[0:3, 3] = translate
+    mat[0:3, 0:3] = rotate.as_matrix() * scale
     mat[3, 3] = 1.0
     return mat
 
@@ -131,16 +133,20 @@ def is_inside(v, plane):
 
 
 @ti.dataclass
-class TConstBuffer:
+class TGlobalConstBuffer:
     cur_time: ti.f32
     proj_mat: Mat44f
     view_mat: Mat44f
+
+@ti.dataclass
+class TInstanceConstBuffer:
     world_mat: Mat44f
 
 @ti.dataclass
 class TVert:
     pos: Vec3f
     color: Vec3f
+    cb_index: ti.i32
 
 @ti.dataclass
 class TInputAssem:
@@ -206,6 +212,8 @@ def intersect_vert(v1: TVsOut, v2: TVsOut, plane):
 @ti.data_oriented
 class Renderer:
 
+    max_field_size = 2048
+
     def __init__(self, width, height):
         self.window_size = Vec2i(width, height)
         
@@ -214,40 +222,54 @@ class Renderer:
 
         self.max_primitive_count = 1024
         
-        # TConstBuffer = ti.types.struct(cur_time=ti.f32, proj_mat=Mat44f, view_mat=Mat44f, world_mat=Mat44f)
-        self.constant_buffer = TConstBuffer.field(shape=())
+        self.global_const_buffer = TGlobalConstBuffer.field(shape=())
+        
+        self.instance_const_buffer = TInstanceConstBuffer.field(shape=self.max_primitive_count)
+        self.instance_const_buffer_counter = ti.field(dtype=ti.i32, shape=())
 
-        # TVert = ti.types.struct(pos=Vec3f, color=Vec3f)
-        self.vertex_buffer = TVert.field(shape=8)
-        self.index_buffer = ti.field(dtype=Vec3is, shape=12)
+        self.vertex_buffer = TVert.field(shape=self.max_field_size)
+        self.vertex_buffer_counter = ti.field(dtype=ti.i32, shape=())
 
-        # TInputAssem = ti.types.struct(v0=TVert, v1=TVert, v2=TVert)
-        self.assembled_input = TInputAssem.field(shape=self.index_buffer.shape[0])
+        self.index_buffer = ti.field(dtype=Vec3is, shape=self.max_field_size)
+        self.index_buffer_counter = ti.field(dtype=ti.i32, shape=())
 
-        # TVsOut = ti.types.struct(pos=Vec4f, color=Vec4f)
-        # TClipInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
+        self.assembled_input = TInputAssem.field(shape=self.max_field_size)
+        self.assembled_input_counter = ti.field(dtype=ti.i32, shape=())
+
         self.clip_input = TClipInput.field(shape=self.max_primitive_count)
         self.clip_input_counter = ti.field(dtype=ti.i32, shape=())
 
         self.clip_buffer_0 = TVsOut.field(shape=(self.max_primitive_count, 10))
         self.clip_buffer_1 = TVsOut.field(shape=(self.max_primitive_count, 10))
 
-        # TRasterInput = ti.types.struct(v0=TVsOut, v1=TVsOut, v2=TVsOut)
         self.rasterize_input = TRasterInput.field(shape=self.max_primitive_count)
         self.rasterize_input_counter = ti.field(dtype=ti.i32, shape=())
 
-        # TPsInput = ti.types.struct(prim=TVsOut, clipped=ti.i8)
-        self.output_merge_input = ti.field(dtype=Vec4f, shape=(self.window_size.x, self.window_size.y))
+        self.color_buffer = ti.field(dtype=Vec4f, shape=(self.window_size.x, self.window_size.y))
+        self.depth_buffer = ti.field(dtype=ti.f32, shape=(self.window_size.x, self.window_size.y))
 
         self.back_buffer = ti.Vector.field(3, ti.f32, shape=(self.window_size.x, self.window_size.y))
-        self.depth_buffer = ti.field(dtype=ti.f32, shape=(self.window_size.x, self.window_size.y))
+
+    @ti.kernel
+    def begin_frame(self):
+        for I in ti.grouped(self.color_buffer):
+            self.color_buffer[I] = Vec4f(0.0, 0.0, 0.0, 0.0)
+        for I in ti.grouped(self.depth_buffer):
+            self.depth_buffer[I] = 1
+
+        self.vertex_buffer_counter[None] = 0
+        self.index_buffer_counter[None] = 0
+        self.assembled_input_counter[None] = 0
+        self.clip_input_counter[None] = 0
+        self.rasterize_input_counter[None] = 0
+        self.instance_const_buffer_counter[None] = 0
 
     @ti.func
     def vs(self, vertex: TVert) -> TVsOut:
 
-        world_mat = self.constant_buffer[None].world_mat
-        view_mat = self.constant_buffer[None].view_mat
-        proj_mat = self.constant_buffer[None].proj_mat
+        world_mat = self.instance_const_buffer[vertex.cb_index].world_mat
+        view_mat = self.global_const_buffer[None].view_mat
+        proj_mat = self.global_const_buffer[None].proj_mat
 
         pos = Vec4f(vertex.pos, 1.0)
         pos = world_mat @ pos
@@ -263,17 +285,18 @@ class Renderer:
 
     @ti.kernel
     def stage_input_assembly(self):
-        for i in self.index_buffer:
+        index_count = self.index_buffer_counter[None]
+        for i in ti.ndrange(index_count):
             indices = self.index_buffer[i]
-            self.assembled_input[i].v0 = self.vertex_buffer[indices.x]
-            self.assembled_input[i].v1 = self.vertex_buffer[indices.y]
-            self.assembled_input[i].v2 = self.vertex_buffer[indices.z]
+            idx = ti.atomic_add(self.assembled_input_counter[None], 1)
+            self.assembled_input[idx].v0 = self.vertex_buffer[indices.x]
+            self.assembled_input[idx].v1 = self.vertex_buffer[indices.y]
+            self.assembled_input[idx].v2 = self.vertex_buffer[indices.z]
 
     @ti.kernel
     def stage_vertex_shader(self):
-        self.clip_input_counter[None] = 0
-
-        for prim_i in self.assembled_input:
+        # iterate only over valid assembled input entries
+        for prim_i in range(self.assembled_input_counter[None]):
             triangle_vertices = self.assembled_input[prim_i]
             idx = ti.atomic_add(self.clip_input_counter[None], 1)
             self.clip_input[idx].v0 = self.vs(triangle_vertices.v0)
@@ -282,7 +305,6 @@ class Renderer:
 
     @ti.kernel
     def stage_geometry_process(self):
-        self.rasterize_input_counter[None] = 0
         # 针对每个裁剪三角形执行 Sutherland-Hodgman 多边形裁剪
         for prim_i in range(self.clip_input_counter[None]):
             # 用固定数组承载临时顶点
@@ -368,35 +390,38 @@ class Renderer:
                                 ps_input.prim = interp_vsout_3(w, v0, v1, v2)
                                 ps_input.prim.pos /= ps_input.prim.pos.w
                                 
-                                self.output_merge_input[x, y] = self.ps(ps_input.prim)
+                                ps_output = self.ps(ps_input.prim)
+                                self.color_buffer[x, y] = ps_output
                                 self.depth_buffer[x, y] = z
 
     @ti.kernel
     def stage_output_merge(self):
-        for pixel_u, pixel_v in self.output_merge_input:
-            self.back_buffer[pixel_u, pixel_v] = self.output_merge_input[pixel_u, pixel_v].xyz
+        for pixel_u, pixel_v in self.color_buffer:
+            self.back_buffer[pixel_u, pixel_v] = self.color_buffer[pixel_u, pixel_v].xyz
+    
+    def draw_indexed(self, transform, vertices, indices):
+        cb_idx = self.instance_const_buffer_counter[None]
+        self.instance_const_buffer[cb_idx] = TInstanceConstBuffer(world_mat=transform)
+        self.instance_const_buffer_counter[None] += 1
 
-    @ti.kernel
-    def clear_buffers(self):
-        for I in ti.grouped(self.output_merge_input):
-            self.output_merge_input[I] = Vec4f(0.0, 0.0, 0.0, 0.0)
-        for I in ti.grouped(self.depth_buffer):
-            self.depth_buffer[I] = 1
-
-def update_constant_buffer(renderer, t):
-    renderer.constant_buffer[None].cur_time = t
-    renderer.constant_buffer[None].proj_mat = projection_matrix(ti.math.pi / 2, renderer.window_size.x / renderer.window_size.y, 0.1, 100.0)
-    renderer.constant_buffer[None].view_mat = view_matrix(eye=np.array([0.0, -2.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
-    renderer.constant_buffer[None].world_mat = world_matrix(t)
-
+        vert_start = self.vertex_buffer_counter[None]
+        self.vertex_buffer_counter[None] += len(vertices)
+        for i, v in enumerate(vertices):
+            self.vertex_buffer[vert_start + i] = TVert(pos=v, color=v + 0.5, cb_index=cb_idx)
+    
+        index_start = self.index_buffer_counter[None]
+        self.index_buffer_counter[None] += len(indices)
+        for i, v in enumerate(indices):
+            self.index_buffer[index_start + i] = Vec3is(v[0], v[1], v[2]) + vert_start
 
 def main():
     program_start_time = time.time()
 
-    enable_kernel_profile = False
+    enable_kernel_profile = True
     ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=enable_kernel_profile)
 
     renderer = Renderer(width=800, height=600)
+    gui = ti.GUI("Renderer", res=(renderer.window_size.x, renderer.window_size.y), fast_gui=True)
 
     # 构造 Box 的顶点缓冲和索引缓冲
     cube_vb = [
@@ -413,28 +438,41 @@ def main():
         [1,2,6], [6,5,1],   # 右面
         [0,3,7], [7,4,0],   # 左面
     ]
-    # 将 Box 顶点写入顶点字段
-    for i, v in enumerate(cube_vb):
-        renderer.vertex_buffer[i] = TVert(pos=v, color=v + 0.5)
-    
-    for i, v in enumerate(cube_ib):
-        renderer.index_buffer[i] = Vec3is(v[0], v[1], v[2])
-
-    gui = ti.GUI("Renderer", res=(renderer.window_size.x, renderer.window_size.y), fast_gui=True)
     
     while gui.running:
-
+        
         ti.sync()
-
-        frame_start_time = time.time()
-
-        update_constant_buffer(renderer, frame_start_time - program_start_time)
 
         if enable_kernel_profile:
             ti.profiler.clear_kernel_profiler_info()  #
-        
-        renderer.clear_buffers()
 
+        renderer.begin_frame()
+        frame_start_time = time.time()
+
+        renderer.global_const_buffer[None].cur_time = frame_start_time - program_start_time
+        renderer.global_const_buffer[None].proj_mat = projection_matrix(ti.math.pi * 0.7, renderer.window_size.x / renderer.window_size.y, 0.1, 100.0)
+        renderer.global_const_buffer[None].view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+        relative_time = frame_start_time - program_start_time 
+
+        renderer.draw_indexed(world_matrix(
+                                translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
+                                rotate=R.from_rotvec(np.zeros(3)),
+                                scale=0.3),
+                              cube_vb, cube_ib)
+
+        renderer.draw_indexed(world_matrix(
+                                rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
+                                translate=np.array([1.0, 0.0, 0.0]),
+                                scale=0.3), 
+                              cube_vb, cube_ib)
+
+        renderer.draw_indexed(world_matrix(
+                                rotate=R.from_rotvec(rotvec=np.array([0.0, 1.0, 0.0]) * relative_time, degrees=False),
+                                translate=np.array([-1.0, 0.0, 0.0]),
+                                scale=np.sin(relative_time) * 0.5 + 0.5), 
+                              cube_vb, cube_ib)
+        
         renderer.stage_input_assembly()
         renderer.stage_vertex_shader()
         renderer.stage_geometry_process()
@@ -446,12 +484,12 @@ def main():
 
         ti.sync()
 
-        print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         gui.set_image(renderer.back_buffer)
         gui.show()
 
-        print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
 
 if __name__ == "__main__":
