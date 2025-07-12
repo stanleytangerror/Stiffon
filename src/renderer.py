@@ -357,46 +357,53 @@ class Renderer:
 
     @ti.kernel
     def stage_rasterization_and_pixel_shader(self):
-
         for tile_x, tile_y in ti.ndrange(self.tile_count.x, self.tile_count.y):
+            # 计算当前 tile 的像素范围
+            tile_min = Vec2i(tile_x, tile_y) * self.tile_pixel_size
+            tile_max = (Vec2i(tile_x, tile_y) + Vec2i(1, 1)) * self.tile_pixel_size - Vec2i(1, 1)
+            
             for prim_i in range(self.rasterize_input_counter[None]):
-                # 计算当前 tile 的像素范围
-                tile_min = Vec2i(tile_x, tile_y) * self.tile_pixel_size
-                tile_max = (Vec2i(tile_x, tile_y) + Vec2i(1, 1)) * self.tile_pixel_size - Vec2i(1, 1)
-
                 # 遍历当前三角形的像素范围
                 v0 = self.rasterize_input[prim_i].v0
                 v1 = self.rasterize_input[prim_i].v1
                 v2 = self.rasterize_input[prim_i].v2
+                
+                # 预计算屏幕坐标
                 p0 = (v0.pos.xy * 0.5 + 0.5) * self.window_size
                 p1 = (v1.pos.xy * 0.5 + 0.5) * self.window_size
                 p2 = (v2.pos.xy * 0.5 + 0.5) * self.window_size
 
-                min_pixel_uv = max(tile_min, int(ti.floor(min(p0, p1, p2))))
-                max_pixel_uv = min(self.window_size - 1, tile_max, int(ti.ceil(max(p0, p1, p2))))
+                # 计算三角形边界框与tile的交集
+                tri_min = int(ti.floor(min(p0, p1, p2)))
+                tri_max = int(ti.ceil(max(p0, p1, p2)))
+                
+                min_pixel_uv = max(tile_min, tri_min)
+                max_pixel_uv = min(self.window_size - 1, tile_max, tri_max)
 
-                for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
-                    for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
-                        p = Vec2f(x, y) + 0.5
-                        w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
-                        if w.x >= 0 and w.y >= 0 and w.z >= 0:
-                            pos = interp3(w, v0.pos, v1.pos, v2.pos)
-                            pos /= pos.w  
-                            z = pos.z
+                # 只在有交集时进行光栅化
+                if min_pixel_uv.x <= max_pixel_uv.x and min_pixel_uv.y <= max_pixel_uv.y:
+                    for x in range(min_pixel_uv.x, max_pixel_uv.x + 1):
+                        for y in range(min_pixel_uv.y, max_pixel_uv.y + 1):
+                            p = Vec2f(x, y) + 0.5
+                            w = barycentric_coords(p, p0.xy, p1.xy, p2.xy)
+                            if w.x >= 0 and w.y >= 0 and w.z >= 0:
+                                pos = interp3(w, v0.pos, v1.pos, v2.pos)
+                                pos /= pos.w  
+                                z = pos.z
 
-                            old_z = ti.atomic_min(self.depth_buffer[x, y], z)
-                            if z <= old_z:
-                                ps_input = TPsInput()
-                                ps_input.prim = interp_vsout_3(w, v0, v1, v2)
-                                ps_input.prim.pos /= ps_input.prim.pos.w
-                                
-                                ps_output = self.ps(ps_input.prim)
-                                self.color_buffer[x, y] = ps_output
-                                self.depth_buffer[x, y] = z
+                                old_z = ti.atomic_min(self.depth_buffer[x, y], z)
+                                if z <= old_z:
+                                    ps_input = TPsInput()
+                                    ps_input.prim = interp_vsout_3(w, v0, v1, v2)
+                                    ps_input.prim.pos /= ps_input.prim.pos.w
+                                    
+                                    ps_output = self.ps(ps_input.prim)
+                                    self.color_buffer[x, y] = ps_output
+                                    self.depth_buffer[x, y] = z
 
     @ti.kernel
     def stage_output_merge(self):
-        for pixel_u, pixel_v in self.color_buffer:
+        for pixel_u, pixel_v in ti.ndrange(self.window_size.x, self.window_size.y):
             self.back_buffer[pixel_u, pixel_v] = self.color_buffer[pixel_u, pixel_v].xyz
     
     @ti.kernel
@@ -439,7 +446,7 @@ class Renderer:
 def main():
     program_start_time = time.time()
 
-    enable_kernel_profile = False
+    enable_kernel_profile = True
     ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=enable_kernel_profile)
 
     renderer = Renderer(width=800, height=600)
