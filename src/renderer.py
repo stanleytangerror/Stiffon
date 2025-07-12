@@ -439,7 +439,7 @@ class Renderer:
 def main():
     program_start_time = time.time()
 
-    enable_kernel_profile = True
+    enable_kernel_profile = False
     ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=enable_kernel_profile)
 
     renderer = Renderer(width=800, height=600)
@@ -475,14 +475,14 @@ def main():
 
         renderer.begin_frame()
 
-        print(f"Begin frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Begin frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         # 使用kernel来设置全局常量缓冲区
         proj_mat = projection_matrix(ti.math.pi * 0.7, renderer.window_size.x / renderer.window_size.y, 0.1, 100.0)
         view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
         renderer.set_global_const_buffer(relative_time, proj_mat, view_mat)
 
-        print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         renderer.draw(world_matrix(
                                 translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
@@ -502,7 +502,7 @@ def main():
                                 scale=np.sin(relative_time) * 0.5 + 0.5), 
                               cube_vb, cube_ib)
         
-        print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         renderer.stage_input_assembly()
         renderer.stage_vertex_shader()
@@ -510,7 +510,7 @@ def main():
         renderer.stage_rasterization_and_pixel_shader()
         renderer.stage_output_merge()
 
-        print(f"Execute time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Execute time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         if enable_kernel_profile:
             ti.profiler.print_kernel_profiler_info('trace')
@@ -520,7 +520,7 @@ def main():
         gui.set_image(renderer.back_buffer)
         gui.show()
 
-        print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
+        # print(f"Frame time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
 
 if __name__ == "__main__":
