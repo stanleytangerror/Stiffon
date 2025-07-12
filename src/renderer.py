@@ -399,20 +399,29 @@ class Renderer:
         for pixel_u, pixel_v in self.color_buffer:
             self.back_buffer[pixel_u, pixel_v] = self.color_buffer[pixel_u, pixel_v].xyz
     
-    def draw_indexed(self, transform, vertices, indices):
+    @ti.kernel
+    def copy_vertices_to_buffer(self, vertices: ti.types.ndarray(), vert_start: ti.i32, cb_index: ti.i32):
+        for i in range(vertices.shape[0]):
+            v = ti.Vector([vertices[i, 0], vertices[i, 1], vertices[i, 2]], ti.f32)
+            self.vertex_buffer[vert_start + i] = TVert(pos=v, color=v + 0.5, cb_index=cb_index)
+    
+    @ti.kernel
+    def copy_indices_to_buffer(self, indices: ti.types.ndarray(), index_start: ti.i32, vert_start: ti.i32):
+        for i in range(indices.shape[0]):
+            self.index_buffer[index_start + i] = Vec3is(indices[i, 0], indices[i, 1], indices[i, 2]) + vert_start
+    
+    def draw(self, transform, vertices, indices):
         cb_idx = self.instance_const_buffer_counter[None]
         self.instance_const_buffer[cb_idx] = TInstanceConstBuffer(world_mat=transform)
         self.instance_const_buffer_counter[None] += 1
 
         vert_start = self.vertex_buffer_counter[None]
         self.vertex_buffer_counter[None] += len(vertices)
-        for i, v in enumerate(vertices):
-            self.vertex_buffer[vert_start + i] = TVert(pos=v, color=v + 0.5, cb_index=cb_idx)
+        self.copy_vertices_to_buffer(vertices, vert_start, cb_idx)
     
         index_start = self.index_buffer_counter[None]
         self.index_buffer_counter[None] += len(indices)
-        for i, v in enumerate(indices):
-            self.index_buffer[index_start + i] = Vec3is(v[0], v[1], v[2]) + vert_start
+        self.copy_indices_to_buffer(indices, index_start, vert_start)
 
 def main():
     program_start_time = time.time()
@@ -424,20 +433,20 @@ def main():
     gui = ti.GUI("Renderer", res=(renderer.window_size.x, renderer.window_size.y), fast_gui=True)
 
     # 构造 Box 的顶点缓冲和索引缓冲
-    cube_vb = [
-        ti.Vector([-0.5, -0.5, -0.5]), ti.Vector([0.5, -0.5, -0.5]),
-        ti.Vector([0.5,  0.5, -0.5]), ti.Vector([-0.5,  0.5, -0.5]),
-        ti.Vector([-0.5, -0.5,  0.5]), ti.Vector([0.5, -0.5,  0.5]),
-        ti.Vector([0.5,  0.5,  0.5]), ti.Vector([-0.5,  0.5,  0.5]),
-    ]
-    cube_ib = [
+    cube_vb = np.array([
+        [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5],
+        [0.5,  0.5, -0.5], [-0.5,  0.5, -0.5],
+        [-0.5, -0.5,  0.5], [0.5, -0.5,  0.5],
+        [0.5,  0.5,  0.5], [-0.5,  0.5,  0.5],
+    ])
+    cube_ib = np.array([
         [0,1,2], [2,3,0],   # 后面
         [4,5,6], [6,7,4],   # 前面
         [0,1,5], [5,4,0],   # 底面
         [2,3,7], [7,6,2],   # 顶面
         [1,2,6], [6,5,1],   # 右面
         [0,3,7], [7,4,0],   # 左面
-    ]
+    ])
     
     while gui.running:
         
@@ -455,19 +464,19 @@ def main():
 
         relative_time = frame_start_time - program_start_time 
 
-        renderer.draw_indexed(world_matrix(
+        renderer.draw(world_matrix(
                                 translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
                                 rotate=R.from_rotvec(np.zeros(3)),
                                 scale=0.3),
                               cube_vb, cube_ib)
 
-        renderer.draw_indexed(world_matrix(
+        renderer.draw(world_matrix(
                                 rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
                                 translate=np.array([1.0, 0.0, 0.0]),
                                 scale=0.3), 
                               cube_vb, cube_ib)
 
-        renderer.draw_indexed(world_matrix(
+        renderer.draw(world_matrix(
                                 rotate=R.from_rotvec(rotvec=np.array([0.0, 1.0, 0.0]) * relative_time, degrees=False),
                                 translate=np.array([-1.0, 0.0, 0.0]),
                                 scale=np.sin(relative_time) * 0.5 + 0.5), 
