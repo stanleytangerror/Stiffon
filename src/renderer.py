@@ -96,11 +96,14 @@ def view_matrix(eye, target, up):
 
     return inv_r @ inv_t
 
-def world_matrix(rotate, translate=np.zeros(3), scale=1.0):
+def world_matrix(rotate, translate=np.zeros(3), scale=np.ones(3)):
     # world space: right hand, z up
     mat = np.zeros(shape=(4, 4))
     mat[0:3, 3] = translate
-    mat[0:3, 0:3] = rotate.as_matrix() * scale
+    mat[0:3, 0:3] = rotate.as_matrix()
+    mat[0:3, 0] *= scale[0]
+    mat[0:3, 1] *= scale[1]
+    mat[0:3, 2] *= scale[2]
     mat[3, 3] = 1.0
     return mat
 
@@ -494,19 +497,19 @@ def main():
         renderer.draw(world_matrix(
                                 translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
                                 rotate=R.from_rotvec(np.zeros(3)),
-                                scale=0.3),
+                                scale=np.array([0.3, 0.3, 0.3])),
                               cube_vb, cube_ib)
 
         renderer.draw(world_matrix(
                                 rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
                                 translate=np.array([1.0, 0.0, 0.0]),
-                                scale=0.3), 
+                                scale=np.array([0.3, 0.3, 0.3])), 
                               cube_vb, cube_ib)
 
         renderer.draw(world_matrix(
-                                rotate=R.from_rotvec(rotvec=np.array([0.0, 1.0, 0.0]) * relative_time, degrees=False),
+                                rotate=R.from_rotvec(np.zeros(3)),
                                 translate=np.array([-1.0, 0.0, 0.0]),
-                                scale=np.sin(relative_time) * 0.5 + 0.5), 
+                                scale=np.array([np.sin(relative_time) * 0.5 + 0.5, 0.4, np.cos(relative_time) * 0.5 + 0.5])), 
                               cube_vb, cube_ib)
         
         # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
