@@ -145,8 +145,8 @@ class Transform:
     
     def to_matrix(self):
         result = np.eye(4, dtype=np.float64)
-        result[:3, :3] = self.basis[:, :]
-        result[:3, 3] = self.origin[:]
+        result[:3, :3] = self.basis
+        result[:3, 3] = self.origin
         return Mat44(result)
 
 def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_velocity: Vec3, dt: float):

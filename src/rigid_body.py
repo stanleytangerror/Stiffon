@@ -1,5 +1,5 @@
 from math_utils import Vec3, Mat33, Transform, integrate_transform
-from geometry import Box, Sphere, Shape
+from geometry import Box, Sphere
 from renderer import Renderer
 
 class Body:
