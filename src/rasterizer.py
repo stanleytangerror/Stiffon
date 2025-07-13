@@ -138,6 +138,7 @@ class TGlobalConstBuffer:
 @ti.dataclass
 class TInstanceConstBuffer:
     world_mat: Mat44f
+    color: Vec3f
 
 @ti.dataclass
 class TVert:
@@ -273,8 +274,10 @@ class Rasterizer:
         pos = view_mat @ pos
         pos = proj_mat @ pos
 
+        color = self.instance_const_buffer[vertex.cb_index].color * (vertex.pos * 0.3 + 0.5)
+
         return TVsOut(pos=pos,
-                    color=Vec4f(vertex.color, 1.0))
+                    color=Vec4f(color, 1.0))
 
     @ti.func
     def ps(self, vertex: TVsOut) -> Vec4f:
@@ -415,9 +418,11 @@ class Rasterizer:
             self.index_buffer[index_start + i] = Vec3is(indices[i, 0], indices[i, 1], indices[i, 2]) + vert_start
     
     @ti.kernel
-    def set_instance_const_buffer(self, cb_index: ti.i32, world_mat: ti.types.ndarray()):
+    def set_instance_const_buffer(self, cb_index: ti.i32, world_mat: ti.types.ndarray(), color: ti.types.ndarray()):
         for i, j in ti.ndrange(4, 4):
             self.instance_const_buffer[cb_index].world_mat[i, j] = world_mat[i, j]
+        for i in ti.static(range(3)):
+            self.instance_const_buffer[cb_index].color[i] = color[i]
     
     @ti.kernel
     def set_global_const_buffer(self, proj_mat: ti.types.ndarray(), view_mat: ti.types.ndarray()):
@@ -425,10 +430,10 @@ class Rasterizer:
             self.global_const_buffer[None].proj_mat[i, j] = proj_mat[i, j]
             self.global_const_buffer[None].view_mat[i, j] = view_mat[i, j]
     
-    def draw(self, transform, vertices, indices):
+    def draw(self, transform, color, vertices, indices):
         cb_idx = self.instance_const_buffer_counter[None]
         # 使用kernel来设置变换矩阵
-        self.set_instance_const_buffer(cb_idx, transform)
+        self.set_instance_const_buffer(cb_idx, transform, color)
         self.instance_const_buffer_counter[None] += 1
 
         vert_start = self.vertex_buffer_counter[None]
@@ -493,19 +498,22 @@ if __name__ == "__main__":
                                 translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
                                 rotate=R.from_rotvec(np.zeros(3)),
                                 scale=np.array([0.3, 0.3, 0.3])),
-                              cube_vb, cube_ib)
+                            np.array([1.0, 0.0, 0.0]),
+                            cube_vb, cube_ib)
 
         rasterizer.draw(world_matrix(
                                 rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
                                 translate=np.array([1.0, 0.0, 0.0]),
                                 scale=np.array([0.3, 0.3, 0.3])), 
-                              cube_vb, cube_ib)
+                            np.array([0.0, 1.0, 0.0]),
+                            cube_vb, cube_ib)
 
         rasterizer.draw(world_matrix(
                                 rotate=R.from_rotvec(np.zeros(3)),
                                 translate=np.array([-1.0, 0.0, 0.0]),
                                 scale=np.array([np.sin(relative_time) * 0.5 + 0.5, 0.4, np.cos(relative_time) * 0.5 + 0.5])), 
-                              cube_vb, cube_ib)
+                            np.array([0.0, 0.0, 1.0]),
+                            cube_vb, cube_ib)
         
         # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 

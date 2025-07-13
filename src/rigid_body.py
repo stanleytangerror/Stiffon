@@ -37,9 +37,9 @@ if __name__ == "__main__":
     renderer = Renderer(width=800, height=600)
 
     while renderer.is_running():
-        renderer.begin_frame()
         scene.step_simulation(0.01)
 
+        renderer.begin_frame()
         renderer.draw_box(body1.pose.to_matrix())
         renderer.draw_box(body2.pose.to_matrix())
         renderer.end_frame()
