@@ -96,10 +96,6 @@ class Mat33(np.ndarray):
         if self.shape != (3, 3):
             raise ValueError(f"Mat33 requires shape (3, 3), got {self.shape}")
 
-    def __array_wrap__(self, out_arr, context=None):
-        """Handle slicing and other operations that change the shape"""
-        return out_arr.view(np.ndarray)
-
     @staticmethod
     def identity():
         return Mat33(np.eye(3, dtype=np.float64))
