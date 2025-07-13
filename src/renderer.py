@@ -40,7 +40,7 @@ class Renderer:
         self.lens_near = near
         self.lens_far = far
 
-    def draw_box(self, transform):
+    def draw_box(self, world_mat):
         cube_vb = np.array([
             [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5],
             [0.5,  0.5, -0.5], [-0.5,  0.5, -0.5],
@@ -56,7 +56,7 @@ class Renderer:
             [0,3,7], [7,4,0],   # 左面
         ])
 
-        self.renderer.draw(transform, cube_vb, cube_ib)
+        self.renderer.draw(world_mat, cube_vb, cube_ib)
 
     def begin_frame(self):
         self.renderer.begin_frame()
@@ -70,7 +70,7 @@ class Renderer:
 
         proj_mat = projection_matrix(self.lens_fov, self.lens_aspect, self.lens_near, self.lens_far)
         view_mat = view_matrix(eye=self.camera_eye, target=self.camera_target, up=self.camera_up)
-        self.renderer.set_global_const_buffer(relative_time, proj_mat, view_mat)
+        self.renderer.set_global_const_buffer(proj_mat, view_mat)
 
         self.renderer.stage_input_assembly()
         self.renderer.stage_vertex_shader()

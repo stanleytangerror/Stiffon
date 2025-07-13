@@ -132,7 +132,6 @@ def is_inside(v, plane):
 
 @ti.dataclass
 class TGlobalConstBuffer:
-    cur_time: ti.f32
     proj_mat: Mat44f
     view_mat: Mat44f
 
@@ -421,8 +420,7 @@ class Rasterizer:
             self.instance_const_buffer[cb_index].world_mat[i, j] = world_mat[i, j]
     
     @ti.kernel
-    def set_global_const_buffer(self, cur_time: ti.f32, proj_mat: ti.types.ndarray(), view_mat: ti.types.ndarray()):
-        self.global_const_buffer[None].cur_time = cur_time
+    def set_global_const_buffer(self, proj_mat: ti.types.ndarray(), view_mat: ti.types.ndarray()):
         for i, j in ti.ndrange(4, 4):
             self.global_const_buffer[None].proj_mat[i, j] = proj_mat[i, j]
             self.global_const_buffer[None].view_mat[i, j] = view_mat[i, j]
@@ -487,7 +485,7 @@ if __name__ == "__main__":
         # 使用kernel来设置全局常量缓冲区
         proj_mat = projection_matrix(ti.math.pi * 0.7, rasterizer.window_size.x / rasterizer.window_size.y, 0.1, 100.0)
         view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
-        rasterizer.set_global_const_buffer(relative_time, proj_mat, view_mat)
+        rasterizer.set_global_const_buffer(proj_mat, view_mat)
 
         # print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 

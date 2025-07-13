@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 def normalized(v):
     norm = np.linalg.norm(v)
@@ -24,7 +25,7 @@ class Vec3(np.ndarray):
     def __array_finalize__(self, obj):
         if obj is None:
             return
-        if self.shape != (3,):
+        if self.shape != (3,) and self.shape != (3, 1) and self.shape != (1, 3):
             raise ValueError(f"Vec3 requires shape (3,), got {self.shape}")
     
     def __array_wrap__(self, out_arr, context=None):
@@ -97,11 +98,7 @@ class Mat33(np.ndarray):
 
     def __array_wrap__(self, out_arr, context=None):
         """Handle slicing and other operations that change the shape"""
-        if out_arr.shape == (3, 3):
-            return out_arr.view(Mat33)
-        else:
-            # Return as regular numpy array for non-3x3 shapes
-            return out_arr.view(np.ndarray)
+        return out_arr.view(np.ndarray)
 
     @staticmethod
     def identity():
@@ -111,8 +108,7 @@ class Mat44(np.ndarray):
     """4x4 matrix class as an alias to numpy array with shape (4, 4)"""
     def __new__(cls, data=None):
         if data is None:
-            # Identity matrix by default
-            arr = np.eye(4, dtype=np.float64)
+            arr = np.zeros((4, 4), dtype=np.float64)
         elif isinstance(data, (list, tuple, np.ndarray)):
             arr = np.array(data, dtype=np.float64)
             if arr.shape != (4, 4):
@@ -146,3 +142,14 @@ class Transform:
         inv_t = Transform(-self.origin, Mat33.identity())
         inv_r = Transform(Vec3(0, 0, 0), self.basis.transpose())
         return inv_r @ inv_t
+    
+    def to_matrix(self):
+        result = np.eye(4, dtype=np.float64)
+        result[:3, :3] = self.basis[:, :]
+        result[:3, 3] = self.origin[:]
+        return Mat44(result)
+
+def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_velocity: Vec3, dt: float):
+    new_origin = transform.origin + linear_velocity * dt
+    new_basis = R.from_rotvec(angular_velocity * dt).as_matrix() @ R.from_matrix(transform.basis).as_matrix()
+    return Transform(new_origin, new_basis)
