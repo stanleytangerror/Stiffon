@@ -2,6 +2,7 @@ import taichi as ti
 import numpy as np
 from scipy.spatial.transform.rotation import Rotation as R
 import time
+from math_utils import normalized
 
 Vec3is = ti.types.vector(3, ti.i16)
 Vec2i = ti.types.vector(2, ti.i32)
@@ -11,12 +12,6 @@ Vec4f = ti.types.vector(4, ti.f32)
 Mat33f = ti.types.matrix(3, 3, ti.f32)
 Mat44f = ti.types.matrix(4, 4, ti.f32)
 
-def normalized(v):
-    norm = np.linalg.norm(v)
-    if norm > 1e-10:
-        return v / norm
-    else:
-        return v
 
 @ti.func
 def edge(a, b, c): 

@@ -2,7 +2,8 @@ import taichi as ti
 import numpy as np
 from scipy.spatial.transform.rotation import Rotation as R
 import time
-from rasterizer import Rasterizer, projection_matrix, view_matrix, world_matrix, normalized
+from rasterizer import Rasterizer, projection_matrix, view_matrix, world_matrix
+from math_utils import normalized
 
 class Renderer:
     def __init__(self, width, height):
