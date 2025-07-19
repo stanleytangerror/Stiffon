@@ -1,5 +1,5 @@
 import numpy as np
-from math_utils import Vec3, Transform
+from math_utils import Vec3, Transform, normalized
 
 class Box:
     def __init__(self, half_extents: Vec3):
@@ -11,7 +11,7 @@ class Sphere:
 
 class Plane:
     def __init__(self, normal: Vec3, distance: float):
-        self.normal = normal
+        self.normal = normalized(normal)
         self.distance = distance
 
 class Shape:
@@ -106,5 +106,7 @@ def intersect(shape1: Shape, shape2: Shape):
         return intersect_sphere_plane(shape1.geometry, shape1.transform, shape2.geometry)
     elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Sphere):
         return intersect_sphere_plane(shape2.geometry, shape2.transform, shape1.geometry)
+    elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Plane):
+        return IntersectionResult(False, Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0))
     else:
         raise NotImplementedError(f"Intersection between {type(shape1.geometry)} and {type(shape2.geometry)} not implemented")

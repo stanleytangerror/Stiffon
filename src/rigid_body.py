@@ -90,7 +90,7 @@ class Scene:
     def __init__(self):
         self.gravity = Vec3(0.0, 0.0, -9.8)
         self.bodies = []
-        self.constraints = []
+        self.temporary_constraints = []
 
     def add_body(self, body: Body):
         self.bodies.append(body)
@@ -99,11 +99,12 @@ class Scene:
         self.apply_gravity()
         self.predict_pose(dt)
         self.contact_detection()
-        for constraint in self.constraints:
+        for constraint in self.temporary_constraints:
             constraint.setup(dt)
-        for constraint in self.constraints:
+        for constraint in self.temporary_constraints:
             constraint.iteration()
         self.post_constraint(dt)
+        self.temporary_constraints.clear()
 
     def apply_gravity(self):
         for body in self.bodies:
@@ -124,7 +125,7 @@ class Scene:
                 contact_result = intersect(Shape(body.geometry, body.predicted_pose), Shape(other_body.geometry, other_body.predicted_pose))
                 if contact_result.intersects:
                     print(f"Contact detected between {body} and {other_body}")
-                    self.constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal))
+                    self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal))
 
     def post_constraint(self, dt: float):
         for body in self.bodies:
@@ -172,10 +173,7 @@ if __name__ == "__main__":
     sphere1 = Body(mass=1.0, linear_velocity=Vec3(1.0, 0.0, 10.0), pose=Transform(Vec3(-1.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(sphere1)
 
-    sphere2 = Body(mass=1.0, linear_velocity=Vec3(-1.0, 0.0, 10.0), pose=Transform(Vec3(1.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5))
-    scene.add_body(sphere2)
-
-    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 1.0), 0.0))
+    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(1.0, 0.0, 1.0), 0.0))
     scene.add_body(ground)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
