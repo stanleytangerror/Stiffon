@@ -8,7 +8,7 @@ from math_utils import normalized
 class Renderer:
     def __init__(self, width, height):
         # taichi initialization
-        self.enable_kernel_profile = True
+        self.enable_kernel_profile = False
         ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=self.enable_kernel_profile)
 
         # rasterizer initialization

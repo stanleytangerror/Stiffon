@@ -149,3 +149,6 @@ def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_vel
     new_origin = transform.origin + linear_velocity * dt
     new_basis = R.from_rotvec(angular_velocity * dt).as_matrix() @ R.from_matrix(transform.basis).as_matrix()
     return Transform(new_origin, new_basis)
+
+def skew_symmetric_matrix(v: Vec3):
+    return Mat33(np.array([[0, -v.z, v.y], [v.z, 0, -v.x], [-v.y, v.x, 0]]))
