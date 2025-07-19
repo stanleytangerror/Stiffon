@@ -52,14 +52,14 @@ def barycentric_coords(p, p0, p1, p2):
             result = Vec3f(t, 0.0, 1 - t)
     return result
 
-def projection_matrix(fov, aspect, near, far):
+def projection_matrix(fov_y, aspect, near, far):
     # https://github.com/g-truc/glm/blob/master/glm/ext/matrix_clip_space.inl
     # clip space (4D homogeneous):
     # +x: screen left, [-1, 1]
     # +y: screen up, [-1, 1]
     # +z: screen in
     # z/w: [0, 1], near: 0, far: 1
-    inv_tan = 1.0 / ti.tan(fov * 0.5)
+    inv_tan = 1.0 / ti.tan(fov_y * 0.5)
     mat = np.zeros(shape=(4, 4), dtype=np.float32)
     mat[0, 0] = inv_tan / aspect
     mat[1, 1] = inv_tan
@@ -474,7 +474,6 @@ if __name__ == "__main__":
     while gui.running:
         
         frame_start_time = time.time()
-        relative_time = frame_start_time - program_start_time 
 
         ti.sync()
 
@@ -495,26 +494,12 @@ if __name__ == "__main__":
         # print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         rasterizer.draw(world_matrix(
-                                translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
+                                translate=np.zeros(3),
                                 rotate=R.from_rotvec(np.zeros(3)),
-                                scale=np.array([0.3, 0.3, 0.3])),
+                                scale=np.ones(3)),
                             np.array([1.0, 0.0, 0.0]),
                             cube_vb, cube_ib)
 
-        rasterizer.draw(world_matrix(
-                                rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
-                                translate=np.array([1.0, 0.0, 0.0]),
-                                scale=np.array([0.3, 0.3, 0.3])), 
-                            np.array([0.0, 1.0, 0.0]),
-                            cube_vb, cube_ib)
-
-        rasterizer.draw(world_matrix(
-                                rotate=R.from_rotvec(np.zeros(3)),
-                                translate=np.array([-1.0, 0.0, 0.0]),
-                                scale=np.array([np.sin(relative_time) * 0.5 + 0.5, 0.4, np.cos(relative_time) * 0.5 + 0.5])), 
-                            np.array([0.0, 0.0, 1.0]),
-                            cube_vb, cube_ib)
-        
         # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
         rasterizer.stage_input_assembly()
