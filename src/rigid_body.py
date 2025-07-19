@@ -118,9 +118,9 @@ class Scene:
             body.predicted_pose = integrate_transform(body.pose, pred_linear_velocity, pred_angular_velocity, dt)
     
     def contact_detection(self):
-        for body in self.bodies:
-            for other_body in self.bodies:
-                if body == other_body:
+        for i, body in enumerate(self.bodies):
+            for j, other_body in enumerate(self.bodies):
+                if i >= j:
                     continue
                 contact_result = intersect(Shape(body.geometry, body.predicted_pose), Shape(other_body.geometry, other_body.predicted_pose))
                 if contact_result.intersects:
