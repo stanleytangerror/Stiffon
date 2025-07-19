@@ -32,6 +32,8 @@ class Body:
         self.total_torque += np.cross(point - self.pose.origin, force)
 
 class ContactConstraint:
+    # Constraint function: C = normal_A * (X_A + R_A * r_A - X_B - R_B * r_B) >= 0
+    # Jacobian: J = [ -normal_A, -normal_A * -r_A[x], normal_A, normal_A * r_B[x] ]
     def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3):
         self.body_A = body_A
         self.body_B = body_B
