@@ -40,14 +40,14 @@ class Renderer:
         self.lens_near = near
         self.lens_far = far
 
-    def draw_box(self, world_mat):
-        cube_vb = np.array([
+    def draw_box(self, world_mat, color):
+        vertices = np.array([
             [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5],
             [0.5,  0.5, -0.5], [-0.5,  0.5, -0.5],
             [-0.5, -0.5,  0.5], [0.5, -0.5,  0.5],
             [0.5,  0.5,  0.5], [-0.5,  0.5,  0.5],
         ])
-        cube_ib = np.array([
+        indices = np.array([
             [0,1,2], [2,3,0],   # 后面
             [4,5,6], [6,7,4],   # 前面
             [0,1,5], [5,4,0],   # 底面
@@ -56,7 +56,44 @@ class Renderer:
             [0,3,7], [7,4,0],   # 左面
         ])
 
-        self.renderer.draw(world_mat, cube_vb, cube_ib)
+        self.renderer.draw(world_mat, color, vertices, indices)
+
+    def draw_sphere(self, world_mat, color, split_count=10):
+        
+        # Generate sphere vertices using spherical coordinates
+        vertices = []
+        indices = []
+        
+        # Generate vertices
+        for lat in range(split_count + 1):
+            theta = np.pi * lat / split_count
+            for lon in range(split_count + 1):
+                phi = 2 * np.pi * lon / split_count
+                
+                # Convert spherical to Cartesian coordinates
+                x = 0.5 * np.sin(theta) * np.cos(phi)
+                y = 0.5 * np.sin(theta) * np.sin(phi)
+                z = 0.5 * np.cos(theta)
+                
+                vertices.append([x, y, z])
+        
+        # Generate indices for triangles
+        for lat in range(split_count):
+            for lon in range(split_count):
+                # Calculate vertex indices for current quad
+                current = lat * (split_count + 1) + lon
+                next_lat = current + (split_count + 1)
+                next_lon = current + 1
+                next_lat_next_lon = next_lat + 1
+                
+                # Add two triangles to form a quad
+                indices.append([current, next_lat, next_lon])
+                indices.append([next_lat, next_lat_next_lon, next_lon])
+        
+        vertices = np.array(vertices, dtype=np.float32)
+        indices = np.array(indices, dtype=np.int32)
+
+        self.renderer.draw(world_mat, color, vertices, indices)
 
     def begin_frame(self):
         self.renderer.begin_frame()
@@ -101,16 +138,33 @@ if __name__ == "__main__":
         renderer.draw_box(world_matrix(
                                 translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
                                 rotate=R.from_rotvec(np.zeros(3)),
-                                scale=np.array([0.3, 0.3, 0.3])))
+                                scale=np.array([0.3, 0.3, 0.3])),
+                                color=np.array([1.0, 0.0, 0.0]))
 
         renderer.draw_box(world_matrix(
                                 rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
                                 translate=np.array([1.0, 0.0, 0.0]),
-                                scale=np.array([0.3, 0.3, 0.3])))
+                                scale=np.array([0.3, 0.3, 0.3])),
+                                color=np.array([0.0, 1.0, 0.0]))
 
         renderer.draw_box(world_matrix(
                                 rotate=R.from_rotvec(np.zeros(3)),
                                 translate=np.array([-1.0, 0.0, 0.0]),
-                                scale=np.array([np.sin(relative_time) * 0.5 + 0.5, 0.4, np.cos(relative_time) * 0.5 + 0.5])))
+                                scale=np.array([np.sin(relative_time) * 0.5 + 0.5, 0.4, np.cos(relative_time) * 0.5 + 0.5])),
+                                color=np.array([0.0, 0.0, 1.0]))
+
+        renderer.draw_sphere(world_matrix(
+                                translate=np.array([np.sin(-relative_time), 0.0, np.cos(-relative_time)]) * 0.5,
+                                rotate=R.from_rotvec(np.zeros(3)),
+                                scale=np.array([0.3, 0.3, 0.3])),
+                                color=np.array([1.0, 1.0, 1.0]),
+                                split_count=2)
+
+        renderer.draw_sphere(world_matrix(
+                                rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * -relative_time, degrees=False),
+                                translate=np.array([1.0, 2.0, 0.0]),
+                                scale=np.array([0.3, 0.3, 0.3])),
+                                color=np.array([0.0, 1.0, 1.0]),
+                                split_count=10)
 
         renderer.end_frame()
