@@ -270,9 +270,13 @@ class Rasterizer:
         proj_mat = self.global_const_buffer[None].proj_mat
 
         pos = Vec4f(vertex.pos, 1.0)
+        print(f"pos0: {pos}")
         pos = world_mat @ pos
+        print(f"pos1: {pos}")
         pos = view_mat @ pos
+        print(f"pos2: {pos}")
         pos = proj_mat @ pos
+        print(f"pos3: {pos}")
 
         color = self.instance_const_buffer[vertex.cb_index].color * (vertex.pos * 0.3 + 0.5)
 
@@ -369,9 +373,9 @@ class Rasterizer:
                 v2 = self.rasterize_input[prim_i].v2
                 
                 # 预计算屏幕坐标
-                p0 = (v0.pos.xy * 0.5 + 0.5) * self.window_size
-                p1 = (v1.pos.xy * 0.5 + 0.5) * self.window_size
-                p2 = (v2.pos.xy * 0.5 + 0.5) * self.window_size
+                p0 = (v0.pos.xy / v0.pos.w * 0.5 + 0.5) * self.window_size
+                p1 = (v1.pos.xy / v1.pos.w * 0.5 + 0.5) * self.window_size
+                p2 = (v2.pos.xy / v2.pos.w * 0.5 + 0.5) * self.window_size
 
                 # 计算三角形边界框与tile的交集
                 tri_min = int(ti.floor(min(p0, p1, p2)))
@@ -449,7 +453,7 @@ if __name__ == "__main__":
 
     program_start_time = time.time()
 
-    enable_kernel_profile = True
+    enable_kernel_profile = False
     ti.init(arch=ti.gpu, debug=False, default_fp=ti.f32, kernel_profiler=enable_kernel_profile)
 
     rasterizer = Rasterizer(width=800, height=600)
@@ -488,7 +492,7 @@ if __name__ == "__main__":
 
         # 使用kernel来设置全局常量缓冲区
         proj_mat = projection_matrix(ti.math.pi * 0.7, rasterizer.window_size.x / rasterizer.window_size.y, 0.1, 100.0)
-        view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+        view_mat = view_matrix(eye=np.array([0.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
         rasterizer.set_global_const_buffer(proj_mat, view_mat)
 
         # print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
@@ -498,7 +502,7 @@ if __name__ == "__main__":
                                 rotate=R.from_rotvec(np.zeros(3)),
                                 scale=np.ones(3)),
                             np.array([1.0, 0.0, 0.0]),
-                            cube_vb, cube_ib)
+                            cube_vb, np.array([[5,4,0]]))
 
         # print(f"Draw time: {(time.time() - frame_start_time) * 1000:.3f} ms")
 
