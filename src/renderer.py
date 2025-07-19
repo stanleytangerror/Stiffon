@@ -16,7 +16,7 @@ class Renderer:
         self.gui = ti.GUI("Rasterizer", res=(self.renderer.window_size.x, self.renderer.window_size.y), fast_gui=True)
 
         # camera initialization
-        self.camera_eye = np.array([0.0, -20.0, 0.0])
+        self.camera_eye = np.array([0.0, -2.0, 0.0])
         self.camera_target = np.array([0.0, 0.0, 0.0])
         self.camera_up = np.array([0.0, 0.0, 1.0])
 

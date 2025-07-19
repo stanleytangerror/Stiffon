@@ -154,17 +154,17 @@ class SceneDebugRenderer:
 if __name__ == "__main__":
     scene = Scene()
     
-    sphere1 = Body(mass=1.0, linear_velocity=Vec3(0.3, 0.0, 1.0), pose=Transform(Vec3(-1.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
+    sphere1 = Body(mass=1.0, linear_velocity=Vec3(1.0, 0.0, 10.0), pose=Transform(Vec3(-1.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(sphere1)
 
-    sphere2 = Body(mass=1.0, linear_velocity=Vec3(-0.3, 0.0, 1.0), pose=Transform(Vec3(1.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
+    sphere2 = Body(mass=1.0, linear_velocity=Vec3(-1.0, 0.0, 10.0), pose=Transform(Vec3(1.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(sphere2)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
-    renderer.renderer.set_camera(eye=np.array([0.0, -40.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
     while renderer.is_running():
-        sphere1.apply_force(Vec3(0.0, 0.0, -0.98 * sphere1.mass), sphere1.pose.origin)
-        sphere2.apply_force(Vec3(0.0, 0.0, -0.98 * sphere2.mass), sphere2.pose.origin)
+        sphere1.apply_force(Vec3(0.0, 0.0, -9.8 * sphere1.mass), sphere1.pose.origin)
+        sphere2.apply_force(Vec3(0.0, 0.0, -9.8 * sphere2.mass), sphere2.pose.origin)
         scene.step_simulation(0.01)
         renderer.render()

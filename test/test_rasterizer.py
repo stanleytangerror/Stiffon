@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
         # 使用kernel来设置全局常量缓冲区
         proj_mat = projection_matrix(ti.math.pi * 0.7, rasterizer.window_size.x / rasterizer.window_size.y, 0.1, 100.0)
-        view_mat = view_matrix(eye=np.array([-10.0, -20.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+        view_mat = view_matrix(eye=np.array([-2.0, -2.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
         rasterizer.set_global_const_buffer(proj_mat, view_mat)
 
         # print(f"Global cb time: {(time.time() - frame_start_time) * 1000:.3f} ms")
