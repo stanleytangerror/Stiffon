@@ -2,6 +2,7 @@ from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetr
 from geometry import Box, Sphere, Plane, Shape, intersect
 from renderer import Renderer
 import numpy as np
+from scipy.optimize import lsq_linear
 
 class Body:
     def __init__(self, mass: float, inertia: Vec3 = Vec3(1, 1, 1), 
@@ -31,19 +32,19 @@ class Body:
         self.total_torque += np.cross(point - self.pose.origin, force)
 
 class ContactConstraint:
-    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, contact_normal: Vec3):
+    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3):
         self.body_A = body_A
         self.body_B = body_B
         self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
         self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
-        self.contact_normal = contact_normal
+        self.normal_A = normal_A
 
     def setup(self, dt: float):
         self.jacobian = np.zeros((3, 12))
-        self.jacobian[0:3, 0:3] = np.diag(self.contact_normal)
-        self.jacobian[0:3, 3:6] = self.contact_normal.transpose() @ skew_symmetric_matrix(-self.r_A)
-        self.jacobian[0:3, 6:9] = -np.diag(self.contact_normal)
-        self.jacobian[0:3, 9:12] = -self.contact_normal.transpose() @ skew_symmetric_matrix(-self.r_B)
+        self.jacobian[0:3, 0:3] = np.diag(-self.normal_A)
+        self.jacobian[0:3, 3:6] = -self.normal_A.transpose() @ skew_symmetric_matrix(-self.r_A)
+        self.jacobian[0:3, 6:9] = -np.diag(-self.normal_A)
+        self.jacobian[0:3, 9:12] = self.normal_A.transpose() @ skew_symmetric_matrix(-self.r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
@@ -72,7 +73,9 @@ class ContactConstraint:
 
         rhs = -self.jacobian @ (self.generic_velocity + self.generic_external_impulse + generic_delta_velocity)
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
-        lamdba_ = np.linalg.pinv(effective_mass) @ rhs
+        # lamdba_ = np.linalg.pinv(effective_mass) @ rhs
+        lsp_result = lsq_linear(effective_mass, rhs.reshape(3), bounds=(0, np.inf))
+        lamdba_ = lsp_result.x.reshape(3, 1)
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
