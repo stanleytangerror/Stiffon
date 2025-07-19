@@ -91,6 +91,7 @@ class Scene:
         self.gravity = Vec3(0.0, 0.0, -9.8)
         self.bodies = []
         self.temporary_constraints = []
+        self.constraint_iterations = 4
 
     def add_body(self, body: Body):
         self.bodies.append(body)
@@ -101,8 +102,9 @@ class Scene:
         self.contact_detection()
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
-        for constraint in self.temporary_constraints:
-            constraint.iteration()
+        for i in range(self.constraint_iterations):
+            for constraint in self.temporary_constraints:
+                constraint.iteration()
         self.post_constraint(dt)
         self.temporary_constraints.clear()
 
