@@ -1,5 +1,5 @@
 from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetric_matrix
-from geometry import Box, Sphere, Shape, intersect
+from geometry import Box, Sphere, Plane, Shape, intersect
 from renderer import Renderer
 import numpy as np
 
@@ -7,11 +7,14 @@ class Body:
     def __init__(self, mass: float, inertia: Vec3 = Vec3(1, 1, 1), 
             linear_velocity: Vec3 = Vec3(0, 0, 0), angular_velocity: Vec3 = Vec3(0, 0, 0), 
             pose: Transform = Transform(Vec3(0, 0, 0), Mat33.identity()), 
-            geometry: Box | Sphere = Box(Vec3(0.5, 0.5, 0.5))):
+            geometry: Box | Sphere | Plane = Box(Vec3(0.5, 0.5, 0.5))):
+
+        safe_inv_mass = lambda m: 1.0 / m if m != float('inf') else 0.0
+        
         self.mass = mass
-        self.inv_mass = np.eye(3) * (1.0 / mass)
+        self.inv_mass = np.eye(3) * safe_inv_mass(mass)
         self.inertia = inertia
-        self.inv_inertia = np.diag(np.array([1.0 / inertia.x, 1.0 / inertia.y, 1.0 / inertia.z]))
+        self.inv_inertia = np.diag(np.array([safe_inv_mass(inertia.x), safe_inv_mass(inertia.y), safe_inv_mass(inertia.z)]))  
         self.inv_inertia_world = pose.basis @ self.inv_inertia @ pose.basis.transpose()
         self.linear_velocity = linear_velocity
         self.angular_velocity = angular_velocity
@@ -80,6 +83,7 @@ class ContactConstraint:
 
 class Scene:
     def __init__(self):
+        self.gravity = Vec3(0.0, 0.0, -9.8)
         self.bodies = []
         self.constraints = []
 
@@ -87,6 +91,7 @@ class Scene:
         self.bodies.append(body)
 
     def step_simulation(self, dt: float):
+        self.apply_gravity()
         self.predict_pose(dt)
         self.contact_detection()
         for constraint in self.constraints:
@@ -94,6 +99,11 @@ class Scene:
         for constraint in self.constraints:
             constraint.iteration()
         self.post_constraint(dt)
+
+    def apply_gravity(self):
+        for body in self.bodies:
+            if body.mass != float('inf'):
+                body.apply_force(self.gravity * body.mass, body.pose.origin)
 
     def predict_pose(self, dt: float):
         for body in self.bodies:
@@ -154,17 +164,18 @@ class SceneDebugRenderer:
 if __name__ == "__main__":
     scene = Scene()
     
-    sphere1 = Body(mass=1.0, linear_velocity=Vec3(1.0, 0.0, 10.0), pose=Transform(Vec3(-1.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
+    sphere1 = Body(mass=1.0, linear_velocity=Vec3(1.0, 0.0, 10.0), pose=Transform(Vec3(-1.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(sphere1)
 
-    sphere2 = Body(mass=1.0, linear_velocity=Vec3(-1.0, 0.0, 10.0), pose=Transform(Vec3(1.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
+    sphere2 = Body(mass=1.0, linear_velocity=Vec3(-1.0, 0.0, 10.0), pose=Transform(Vec3(1.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(sphere2)
+
+    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 1.0), 0.0))
+    scene.add_body(ground)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
     while renderer.is_running():
-        sphere1.apply_force(Vec3(0.0, 0.0, -9.8 * sphere1.mass), sphere1.pose.origin)
-        sphere2.apply_force(Vec3(0.0, 0.0, -9.8 * sphere2.mass), sphere2.pose.origin)
         scene.step_simulation(0.01)
         renderer.render()

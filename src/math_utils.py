@@ -25,6 +25,8 @@ class Vec3(np.ndarray):
     def __array_finalize__(self, obj):
         if obj is None:
             return
+        if self.shape == ():
+            return float(self)
         if self.shape != (3,) and self.shape != (3, 1) and self.shape != (1, 3):
             raise ValueError(f"Vec3 requires shape (3,), got {self.shape}")
     
@@ -96,9 +98,21 @@ class Mat33(np.ndarray):
         if self.shape != (3, 3):
             raise ValueError(f"Mat33 requires shape (3, 3), got {self.shape}")
 
+    def __array_wrap__(self, out_arr, context=None):
+        if out_arr.shape == (3,):
+            return Vec3(out_arr[0], out_arr[1], out_arr[2])
+        elif out_arr.shape == (3, 3):
+            return Mat33(out_arr)
+        else:
+            return out_arr.view(np.ndarray)
+
     @staticmethod
     def identity():
         return Mat33(np.eye(3, dtype=np.float64))
+
+    @staticmethod
+    def zero():
+        return Mat33(np.zeros((3, 3), dtype=np.float64))
 
 class Mat44(np.ndarray):
     """4x4 matrix class as an alias to numpy array with shape (4, 4)"""

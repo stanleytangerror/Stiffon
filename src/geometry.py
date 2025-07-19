@@ -64,8 +64,47 @@ def intersect_sphere_sphere(sphere1: Sphere, transform1: Transform, sphere2: Sph
     
     return IntersectionResult(True, point_A, point_B, normal)
 
+def intersect_sphere_plane(sphere: Sphere, transform: Transform, plane: Plane):
+    """
+    Sphere-plane intersection
+    Returns intersection result with contact points and normals
+    """
+    # Calculate sphere center in world space
+    sphere_center = transform.origin
+    
+    # Calculate signed distance from sphere center to plane
+    # plane.normal should be unit vector, plane.distance is distance from origin
+    signed_distance = np.dot(sphere_center, plane.normal) - plane.distance
+    
+    # Check if sphere intersects with plane
+    if abs(signed_distance) > sphere.radius:
+        # No intersection
+        return IntersectionResult(False, Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0))
+    
+    # Calculate intersection point (closest point on sphere to plane)
+    if signed_distance > 0:
+        # Sphere is on positive side of plane
+        intersection_point_vec = sphere_center - sphere.radius * plane.normal
+        normal = Vec3(-plane.normal[0], -plane.normal[1], -plane.normal[2])  # Normal pointing from plane to sphere
+    else:
+        # Sphere is on negative side of plane
+        intersection_point_vec = sphere_center + sphere.radius * plane.normal
+        normal = Vec3(plane.normal[0], plane.normal[1], plane.normal[2])  # Normal pointing from plane to sphere
+    
+    intersection_point = Vec3(intersection_point_vec[0], intersection_point_vec[1], intersection_point_vec[2])
+    
+    # For sphere-plane intersection, both contact points are the same (the intersection point)
+    point_A = intersection_point
+    point_B = intersection_point
+    
+    return IntersectionResult(True, point_A, point_B, normal)
+
 def intersect(shape1: Shape, shape2: Shape):
     if isinstance(shape1.geometry, Sphere) and isinstance(shape2.geometry, Sphere):
         return intersect_sphere_sphere(shape1.geometry, shape1.transform, shape2.geometry, shape2.transform)
+    elif isinstance(shape1.geometry, Sphere) and isinstance(shape2.geometry, Plane):
+        return intersect_sphere_plane(shape1.geometry, shape1.transform, shape2.geometry)
+    elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Sphere):
+        return intersect_sphere_plane(shape2.geometry, shape2.transform, shape1.geometry)
     else:
         raise NotImplementedError(f"Intersection between {type(shape1.geometry)} and {type(shape2.geometry)} not implemented")
