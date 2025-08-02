@@ -84,18 +84,18 @@ def intersect_sphere_plane(sphere: Sphere, transform: Transform, plane: Plane):
     # Calculate intersection point (closest point on sphere to plane)
     if signed_distance > 0:
         # Sphere is on positive side of plane
-        intersection_point_vec = sphere_center - sphere.radius * plane.normal
+        intersection_point_sphere = sphere_center - sphere.radius * plane.normal
+        intersection_point_plane = sphere_center - signed_distance * plane.normal
         normal = Vec3(-plane.normal[0], -plane.normal[1], -plane.normal[2])  # Normal pointing from plane to sphere
     else:
         # Sphere is on negative side of plane
-        intersection_point_vec = sphere_center + sphere.radius * plane.normal
+        intersection_point_sphere = sphere_center + sphere.radius * plane.normal
+        intersection_point_plane = sphere_center - signed_distance * plane.normal
         normal = Vec3(plane.normal[0], plane.normal[1], plane.normal[2])  # Normal pointing from plane to sphere
     
-    intersection_point = Vec3(intersection_point_vec[0], intersection_point_vec[1], intersection_point_vec[2])
-    
     # For sphere-plane intersection, both contact points are the same (the intersection point)
-    point_A = intersection_point
-    point_B = intersection_point
+    point_A = intersection_point_sphere
+    point_B = intersection_point_plane
     
     return IntersectionResult(True, point_A, point_B, normal)
 

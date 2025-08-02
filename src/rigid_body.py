@@ -1,4 +1,5 @@
-from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetric_matrix
+from numpy.linalg import norm
+from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetric_matrix, normalized
 from geometry import Box, Sphere, Plane, Shape, intersect
 from renderer import Renderer
 import numpy as np
@@ -40,6 +41,9 @@ class ContactConstraint:
         self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
         self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.normal_A = normal_A
+        self.penetration_depth = np.dot(normal_A, point_A - point_B)
+        print(f"Penetration depth: {self.penetration_depth}")
+        self.max_penetration = 0.01
 
     def setup(self, dt: float):
         self.jacobian = np.zeros((3, 12))
@@ -66,6 +70,10 @@ class ContactConstraint:
         self.generic_external_impulse[6:9, 0] = self.body_B.total_force @ self.body_B.inv_mass * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.total_torque @ self.body_B.inv_inertia * dt
 
+        erp = 0.2
+        bias = erp * max(0.0, self.penetration_depth - self.max_penetration) / dt
+        self.bias = np.ones((3, 1)) * bias
+
     def iteration(self):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
@@ -73,11 +81,71 @@ class ContactConstraint:
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        rhs = -self.jacobian @ (self.generic_velocity + self.generic_external_impulse + generic_delta_velocity)
+        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
-        # lamdba_ = np.linalg.pinv(effective_mass) @ rhs
-        lsp_result = lsq_linear(effective_mass, rhs.reshape(3), bounds=(0, np.inf))
-        lamdba_ = lsp_result.x.reshape(3, 1)
+
+        lsq_result = lsq_linear(effective_mass, rhs.reshape(3), bounds=(0, np.inf))
+        lamdba_ = lsq_result.x.reshape(3, 1)
+
+        impulse = self.jacobian.transpose() @ lamdba_
+        generic_delta_velocity += self.generic_inv_mass @ impulse
+
+        self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity = generic_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity = generic_delta_velocity[9:12, 0].reshape(3)
+
+class DistanceConstraint:
+    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, distance: float):
+        self.body_A = body_A
+        self.body_B = body_B
+        self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
+        self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
+        self.distance = distance
+    
+    def setup(self, dt: float):
+        a = self.body_A.pose.basis @ self.r_A + self.body_A.pose.origin
+        b = self.body_B.pose.basis @ self.r_B + self.body_B.pose.origin
+        n = normalized(a - b)
+        c_init = norm(a - b) - self.distance
+
+        self.jacobian = np.zeros((1, 12))
+        self.jacobian[0, 0:3] = n.transpose()
+        self.jacobian[0, 3:6] = -n.transpose() @ skew_symmetric_matrix(self.r_A)
+        self.jacobian[0, 6:9] = -n.transpose()
+        self.jacobian[0, 9:12] = n.transpose() @ skew_symmetric_matrix(self.r_B)
+
+        self.generic_inv_mass = np.zeros((12, 12))
+        self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
+        self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia_world
+        self.generic_inv_mass[6:9, 6:9] = self.body_B.inv_mass
+        self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
+
+        self.generic_velocity = np.zeros((12, 1))
+        self.generic_velocity[0:3, 0] = self.body_A.linear_velocity
+        self.generic_velocity[3:6, 0] = self.body_A.angular_velocity
+        self.generic_velocity[6:9, 0] = self.body_B.linear_velocity
+        self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
+
+        self.generic_external_impulse = np.zeros((12, 1))
+        self.generic_external_impulse[0:3, 0] = self.body_A.total_force @ self.body_A.inv_mass * dt
+        self.generic_external_impulse[3:6, 0] = self.body_A.total_torque @ self.body_A.inv_inertia * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.total_force @ self.body_B.inv_mass * dt
+        self.generic_external_impulse[9:12, 0] = self.body_B.total_torque @ self.body_B.inv_inertia * dt
+
+        erp = 1.0
+        self.bias = erp / dt * c_init
+
+    def iteration(self):
+        generic_delta_velocity = np.zeros((12, 1))
+        generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
+        generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
+        generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
+        generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
+
+        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = np.linalg.inv(effective_mass) @ rhs
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
@@ -91,6 +159,7 @@ class Scene:
         self.gravity = Vec3(0.0, 0.0, -9.8)
         self.bodies = []
         self.temporary_constraints = []
+        self.persistent_constraints = []
         self.constraint_iterations = 4
 
     def add_body(self, body: Body):
@@ -102,8 +171,12 @@ class Scene:
         self.contact_detection()
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
+        for constraint in self.persistent_constraints:
+            constraint.setup(dt)
         for i in range(self.constraint_iterations):
             for constraint in self.temporary_constraints:
+                constraint.iteration()
+            for constraint in self.persistent_constraints:
                 constraint.iteration()
         self.post_constraint(dt)
         self.temporary_constraints.clear()
@@ -112,6 +185,9 @@ class Scene:
         for body in self.bodies:
             if body.mass != float('inf'):
                 body.apply_force(self.gravity * body.mass, body.pose.origin)
+    
+    def add_distance_constraint(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, distance: float):
+        self.persistent_constraints.append(DistanceConstraint(body_A, body_B, point_A, point_B, distance))
 
     def predict_pose(self, dt: float):
         for body in self.bodies:
