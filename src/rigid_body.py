@@ -128,12 +128,12 @@ class DistanceConstraint:
         self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
 
         self.generic_external_impulse = np.zeros((12, 1))
-        self.generic_external_impulse[0:3, 0] = self.body_A.total_force @ self.body_A.inv_mass * dt
-        self.generic_external_impulse[3:6, 0] = self.body_A.total_torque @ self.body_A.inv_inertia * dt
-        self.generic_external_impulse[6:9, 0] = self.body_B.total_force @ self.body_B.inv_mass * dt
-        self.generic_external_impulse[9:12, 0] = self.body_B.total_torque @ self.body_B.inv_inertia * dt
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia @ self.body_A.total_torque * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
-        erp = 1.0
+        erp = 0.2
         self.bias = erp / dt * c_init
 
     def iteration(self):
@@ -149,6 +149,8 @@ class DistanceConstraint:
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
+        # print(f'{np.array2string(generic_delta_velocity[6:9, 0].reshape(3), precision=6, suppress_small=True)} {np.array2string(generic_delta_velocity[9:12, 0].reshape(3), precision=6, suppress_small=True)}')
+
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
         self.body_A.delta_angular_velocity = generic_delta_velocity[3:6, 0].reshape(3)
         self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
@@ -160,14 +162,13 @@ class Scene:
         self.bodies = []
         self.temporary_constraints = []
         self.persistent_constraints = []
-        self.constraint_iterations = 4
+        self.constraint_iterations = 1
 
     def add_body(self, body: Body):
         self.bodies.append(body)
 
     def step_simulation(self, dt: float):
         self.apply_gravity()
-        self.predict_pose(dt)
         self.contact_detection()
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
@@ -230,6 +231,8 @@ class SceneDebugRenderer:
         self.renderer.begin_frame()
         for body in self.scene.bodies:
             self.draw_body(body, np.array([1.0, 0.0, 0.0]))
+        for constraint in self.scene.persistent_constraints:
+            self.draw_constraint(constraint, np.array([0.0, 1.0, 1.0]))
         self.renderer.end_frame()
 
     def draw_body(self, body: 'Body', color: np.ndarray):
@@ -243,6 +246,15 @@ class SceneDebugRenderer:
         elif isinstance(body.geometry, Sphere):
             scale_matrix = np.diag(np.array([body.geometry.radius * 2, body.geometry.radius * 2, body.geometry.radius * 2, 1.0]))
             self.renderer.draw_sphere(world_matrix @ scale_matrix, color, 10)
+    
+    def draw_constraint(self, constraint, color: np.ndarray):
+        scale = 0.4
+        scale_matrix = np.diag(np.array([scale, scale, scale, 1.0]))
+        if isinstance(constraint, DistanceConstraint):
+            mat_A = constraint.body_A.pose.to_matrix() @ Transform(constraint.r_A, Mat33.identity()).to_matrix() @ scale_matrix
+            mat_B = constraint.body_B.pose.to_matrix() @ Transform(constraint.r_B, Mat33.identity()).to_matrix() @ scale_matrix
+            self.renderer.draw_sphere(mat_A, color)
+            self.renderer.draw_sphere(mat_B, color)
 
 
 if __name__ == "__main__":
