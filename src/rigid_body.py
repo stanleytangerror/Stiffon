@@ -160,15 +160,16 @@ class DistanceConstraint:
         a = self.body_A.pose.basis @ self.r_A + self.body_A.pose.origin
         b = self.body_B.pose.basis @ self.r_B + self.body_B.pose.origin
         n = normalized(a - b)
-        C = norm(a - b) - self.distance
+        error = norm(a - b) - self.distance
 
-        impulse = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose() * C
-        delta_position = self.generic_inv_mass @ self.jacobian.transpose() * impulse
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = -1.0 / effective_mass[0, 0] * error
+        p = lamdba_ * (a - b - self.distance * n)
 
-        self.body_A.pose.origin += delta_position[0:3, 0].reshape(3)
-        self.body_A.pose.basis = R.from_rotvec(delta_position[0:3, 0]).as_matrix() @ self.body_A.pose.basis
-        self.body_B.pose.origin += delta_position[0:3, 0].reshape(3)
-        self.body_B.pose.basis = R.from_rotvec(delta_position[0:3, 0]).as_matrix() @ self.body_A.pose.basis
+        self.body_A.pose.origin += self.body_A.inv_mass @ p
+        self.body_A.pose.basis = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(a - self.body_A.pose.origin, p)).as_matrix() @ self.body_A.pose.basis
+        self.body_B.pose.origin -= self.body_B.inv_mass @ p
+        self.body_B.pose.basis = R.from_rotvec(self.body_B.inv_inertia_world @ -np.cross(a - self.body_B.pose.origin, p)).as_matrix() @ self.body_B.pose.basis
 
 class Scene:
     def __init__(self):
@@ -195,8 +196,8 @@ class Scene:
                 constraint.iteration()
         self.integrate_position(dt)
         self.temporary_constraints.clear()
-        # for constraint in self.persistent_constraints:
-        #     constraint.relax()
+        for constraint in self.persistent_constraints:
+            constraint.relax()
 
     def apply_gravity(self):
         for body in self.bodies:
@@ -220,8 +221,6 @@ class Scene:
         for body in self.bodies:
             body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass @ body.total_force * dt
             body.angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world @ body.total_torque * dt
-            if body.mass < 10:
-                print(f'linear_velocity {body.linear_velocity} angular_velocity {body.angular_velocity}')
             
             body.pose = integrate_transform(body.pose, body.linear_velocity, body.angular_velocity, dt)
             body.inv_inertia_world = body.pose.basis @ body.inv_inertia @ body.pose.basis.transpose()
