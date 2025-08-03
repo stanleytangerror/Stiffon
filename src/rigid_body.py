@@ -4,6 +4,7 @@ from geometry import Box, Sphere, Plane, Shape, intersect
 from renderer import Renderer
 import numpy as np
 from scipy.optimize import lsq_linear
+from scipy.spatial.transform import Rotation as R
 
 class Body:
     def __init__(self, mass: float, inertia: Vec3 = Vec3(1, 1, 1), 
@@ -155,13 +156,27 @@ class DistanceConstraint:
         self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
         self.body_B.delta_angular_velocity = generic_delta_velocity[9:12, 0].reshape(3)
 
+    def relax(self):
+        a = self.body_A.pose.basis @ self.r_A + self.body_A.pose.origin
+        b = self.body_B.pose.basis @ self.r_B + self.body_B.pose.origin
+        n = normalized(a - b)
+        C = norm(a - b) - self.distance
+
+        impulse = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose() * C
+        delta_position = self.generic_inv_mass @ self.jacobian.transpose() * impulse
+
+        self.body_A.pose.origin += delta_position[0:3, 0].reshape(3)
+        self.body_A.pose.basis = R.from_rotvec(delta_position[0:3, 0]).as_matrix() @ self.body_A.pose.basis
+        self.body_B.pose.origin += delta_position[0:3, 0].reshape(3)
+        self.body_B.pose.basis = R.from_rotvec(delta_position[0:3, 0]).as_matrix() @ self.body_A.pose.basis
+
 class Scene:
     def __init__(self):
-        self.gravity = Vec3(0.0, 0.0, -9.8)
+        self.gravity = Vec3(0.0, 0.0, -10.0)
         self.bodies = []
         self.temporary_constraints = []
         self.persistent_constraints = []
-        self.constraint_iterations = 4
+        self.constraint_iterations = 1
 
     def add_body(self, body: Body):
         self.bodies.append(body)
@@ -178,8 +193,10 @@ class Scene:
                 constraint.iteration()
             for constraint in self.persistent_constraints:
                 constraint.iteration()
-        self.post_constraint(dt)
+        self.integrate_position(dt)
         self.temporary_constraints.clear()
+        # for constraint in self.persistent_constraints:
+        #     constraint.relax()
 
     def apply_gravity(self):
         for body in self.bodies:
@@ -199,10 +216,12 @@ class Scene:
                     print(f"Contact detected between {body} and {other_body}")
                     self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal))
 
-    def post_constraint(self, dt: float):
+    def integrate_position(self, dt: float):
         for body in self.bodies:
             body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass @ body.total_force * dt
             body.angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world @ body.total_torque * dt
+            if body.mass < 10:
+                print(f'linear_velocity {body.linear_velocity} angular_velocity {body.angular_velocity}')
             
             body.pose = integrate_transform(body.pose, body.linear_velocity, body.angular_velocity, dt)
             body.inv_inertia_world = body.pose.basis @ body.inv_inertia @ body.pose.basis.transpose()
