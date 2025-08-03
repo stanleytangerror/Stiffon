@@ -21,7 +21,6 @@ class Body:
         self.linear_velocity = linear_velocity
         self.angular_velocity = angular_velocity
         self.pose = pose
-        self.predicted_pose = pose
         self.geometry = geometry
         self.total_force = Vec3(0, 0, 0)
         self.total_torque = Vec3(0, 0, 0)
@@ -65,10 +64,10 @@ class ContactConstraint:
         self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
 
         self.generic_external_impulse = np.zeros((12, 1))
-        self.generic_external_impulse[0:3, 0] = self.body_A.total_force @ self.body_A.inv_mass * dt
-        self.generic_external_impulse[3:6, 0] = self.body_A.total_torque @ self.body_A.inv_inertia * dt
-        self.generic_external_impulse[6:9, 0] = self.body_B.total_force @ self.body_B.inv_mass * dt
-        self.generic_external_impulse[9:12, 0] = self.body_B.total_torque @ self.body_B.inv_inertia * dt
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
         erp = 0.2
         bias = erp * max(0.0, self.penetration_depth - self.max_penetration) / dt
@@ -129,11 +128,11 @@ class DistanceConstraint:
 
         self.generic_external_impulse = np.zeros((12, 1))
         self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
-        self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia @ self.body_A.total_torque * dt
+        self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
         self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
-        self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
+        self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
 
-        erp = 0.2
+        erp = 0.0
         self.bias = erp / dt * c_init
 
     def iteration(self):
@@ -162,14 +161,14 @@ class Scene:
         self.bodies = []
         self.temporary_constraints = []
         self.persistent_constraints = []
-        self.constraint_iterations = 1
+        self.constraint_iterations = 4
 
     def add_body(self, body: Body):
         self.bodies.append(body)
 
     def step_simulation(self, dt: float):
         self.apply_gravity()
-        self.contact_detection()
+        # self.contact_detection()
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
         for constraint in self.persistent_constraints:
@@ -189,12 +188,6 @@ class Scene:
     
     def add_distance_constraint(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, distance: float):
         self.persistent_constraints.append(DistanceConstraint(body_A, body_B, point_A, point_B, distance))
-
-    def predict_pose(self, dt: float):
-        for body in self.bodies:
-            pred_linear_velocity = body.linear_velocity + body.inv_mass @ body.total_force * dt
-            pred_angular_velocity = body.angular_velocity + body.inv_inertia_world @ body.total_torque * dt
-            body.predicted_pose = integrate_transform(body.pose, pred_linear_velocity, pred_angular_velocity, dt)
     
     def contact_detection(self):
         for i, body in enumerate(self.bodies):

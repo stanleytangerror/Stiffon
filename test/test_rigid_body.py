@@ -65,7 +65,8 @@ def test_distance_constraint():
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
     while renderer.is_running():
-        scene.step_simulation(0.01)
+        for _ in range(4):
+            scene.step_simulation(0.001)
         renderer.render()    
 
 if __name__ == "__main__":
