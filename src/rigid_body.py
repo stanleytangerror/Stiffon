@@ -149,8 +149,6 @@ class DistanceConstraint:
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
-        # print(f'{np.array2string(generic_delta_velocity[6:9, 0].reshape(3), precision=6, suppress_small=True)} {np.array2string(generic_delta_velocity[9:12, 0].reshape(3), precision=6, suppress_small=True)}')
-
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
         self.body_A.delta_angular_velocity = generic_delta_velocity[3:6, 0].reshape(3)
         self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)

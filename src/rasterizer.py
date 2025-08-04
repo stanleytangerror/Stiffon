@@ -210,7 +210,7 @@ def intersect_vert(v1: TVsOut, v2: TVsOut, plane):
 @ti.data_oriented
 class Rasterizer:
 
-    max_field_size = 2048
+    max_field_size = 8192
 
     def __init__(self, width, height):
         self.window_size = Vec2i(width, height)
