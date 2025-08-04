@@ -48,9 +48,9 @@ class ContactConstraint:
     def setup(self, dt: float):
         self.jacobian = np.zeros((3, 12))
         self.jacobian[0:3, 0:3] = np.diag(-self.normal_A)
-        self.jacobian[0:3, 3:6] = -self.normal_A.transpose() @ skew_symmetric_matrix(-self.r_A)
+        self.jacobian[0:3, 3:6] = -self.normal_A.transpose() @ skew_symmetric_matrix(-self.body_A.pose.basis @ self.r_A)
         self.jacobian[0:3, 6:9] = -np.diag(-self.normal_A)
-        self.jacobian[0:3, 9:12] = self.normal_A.transpose() @ skew_symmetric_matrix(-self.r_B)
+        self.jacobian[0:3, 9:12] = self.normal_A.transpose() @ skew_symmetric_matrix(-self.body_B.pose.basis @ self.r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
@@ -111,9 +111,9 @@ class DistanceConstraint:
 
         self.jacobian = np.zeros((1, 12))
         self.jacobian[0, 0:3] = n.transpose()
-        self.jacobian[0, 3:6] = -n.transpose() @ skew_symmetric_matrix(self.r_A)
+        self.jacobian[0, 3:6] = -n.transpose() @ skew_symmetric_matrix(self.body_A.pose.basis @ self.r_A)
         self.jacobian[0, 6:9] = -n.transpose()
-        self.jacobian[0, 9:12] = n.transpose() @ skew_symmetric_matrix(self.r_B)
+        self.jacobian[0, 9:12] = n.transpose() @ skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
@@ -156,21 +156,6 @@ class DistanceConstraint:
         self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
         self.body_B.delta_angular_velocity = generic_delta_velocity[9:12, 0].reshape(3)
 
-    def relax(self):
-        a = self.body_A.pose.basis @ self.r_A + self.body_A.pose.origin
-        b = self.body_B.pose.basis @ self.r_B + self.body_B.pose.origin
-        n = normalized(a - b)
-        error = norm(a - b) - self.distance
-
-        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
-        lamdba_ = -1.0 / effective_mass[0, 0] * error
-        p = lamdba_ * (a - b - self.distance * n)
-
-        self.body_A.pose.origin += self.body_A.inv_mass @ p
-        self.body_A.pose.basis = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(a - self.body_A.pose.origin, p)).as_matrix() @ self.body_A.pose.basis
-        self.body_B.pose.origin -= self.body_B.inv_mass @ p
-        self.body_B.pose.basis = R.from_rotvec(self.body_B.inv_inertia_world @ -np.cross(a - self.body_B.pose.origin, p)).as_matrix() @ self.body_B.pose.basis
-
 class Scene:
     def __init__(self):
         self.gravity = Vec3(0.0, 0.0, -10.0)
@@ -196,8 +181,6 @@ class Scene:
                 constraint.iteration()
         self.integrate_position(dt)
         self.temporary_constraints.clear()
-        for constraint in self.persistent_constraints:
-            constraint.relax()
 
     def apply_gravity(self):
         for body in self.bodies:
