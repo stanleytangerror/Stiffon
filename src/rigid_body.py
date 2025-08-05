@@ -33,24 +33,24 @@ class Body:
         self.total_torque += np.cross(point - self.pose.origin, force)
 
 class ContactConstraint:
-    # Constraint function: C = normal_A * (X_A + R_A * r_A - X_B - R_B * r_B) >= 0
-    # Jacobian: J = [ -normal_A, -normal_A * -r_A[x], normal_A, normal_A * r_B[x] ]
+    # Constraint function: C = -normal_A * (X_A + R_A * r_A - X_B - R_B * r_B) >= 0
+    # Jacobian: J = [ -normal_A, normal_A * [R_A*r_A]x, normal_A, -normal_A * [R_B*r_B]x ]
     def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3):
         self.body_A = body_A
         self.body_B = body_B
         self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
         self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.normal_A = normal_A
-        self.penetration_depth = np.dot(normal_A, point_A - point_B)
-        print(f"Penetration depth: {self.penetration_depth}")
+        self.C = np.dot(-normal_A, point_A - point_B)
+        print(f"Constraint function: {self.C}")
         self.max_penetration = 0.01
 
     def setup(self, dt: float):
         self.jacobian = np.zeros((3, 12))
-        self.jacobian[0:3, 0:3] = np.diag(-self.normal_A)
-        self.jacobian[0:3, 3:6] = -self.normal_A.transpose() @ skew_symmetric_matrix(-self.body_A.pose.basis @ self.r_A)
-        self.jacobian[0:3, 6:9] = -np.diag(-self.normal_A)
-        self.jacobian[0:3, 9:12] = self.normal_A.transpose() @ skew_symmetric_matrix(-self.body_B.pose.basis @ self.r_B)
+        self.jacobian[0:3, 0:3] = -np.diag(self.normal_A)
+        self.jacobian[0:3, 3:6] = self.normal_A.transpose() @ skew_symmetric_matrix(self.body_A.pose.basis @ self.r_A)
+        self.jacobian[0:3, 6:9] = np.diag(self.normal_A)
+        self.jacobian[0:3, 9:12] = -self.normal_A.transpose() @ skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
@@ -71,7 +71,7 @@ class ContactConstraint:
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
         erp = 0.2
-        bias = erp * max(0.0, self.penetration_depth - self.max_penetration) / dt
+        bias = erp * max(-self.max_penetration, self.C) / dt
         self.bias = np.ones((3, 1)) * bias
 
     def iteration(self):
@@ -167,7 +167,7 @@ class Scene:
 
     def step_simulation(self, dt: float):
         self.apply_gravity()
-        # self.contact_detection()
+        self.contact_detection()
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
         for constraint in self.persistent_constraints:
@@ -193,7 +193,7 @@ class Scene:
             for j, other_body in enumerate(self.bodies):
                 if i >= j:
                     continue
-                contact_result = intersect(Shape(body.geometry, body.predicted_pose), Shape(other_body.geometry, other_body.predicted_pose))
+                contact_result = intersect(Shape(body.geometry, body.pose), Shape(other_body.geometry, other_body.pose))
                 if contact_result.intersects:
                     print(f"Contact detected between {body} and {other_body}")
                     self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal))

@@ -93,4 +93,4 @@ def test_distance_constraint_chain():
         renderer.render()    
 
 if __name__ == "__main__":
-    test_distance_constraint_chain()
+    test_contact_constraint_2()
