@@ -166,3 +166,48 @@ def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_vel
 
 def skew_symmetric_matrix(v: Vec3):
     return Mat33(np.array([[0, -v.z, v.y], [v.z, 0, -v.x], [-v.y, v.x, 0]]))
+
+def solve_jacobian(A: np.ndarray, b: np.ndarray, max_iterations: int = 1000, tolerance: float = 1e-6):
+    # A = D + L + U
+    # x_next = -D^{-1} (L + U) @ x_prev + D^{-1} b
+
+    inv_diag = 1.0 / np.diag(A)
+    D_inv = np.zeros_like(A)
+    np.fill_diagonal(D_inv, inv_diag)
+    L = np.tril(A, -1)
+    U = np.triu(A, 1)
+
+    G = -D_inv @ (L + U)
+    C = D_inv @ b
+
+    x = np.zeros_like(b)
+    iterations = 0
+    while iterations < max_iterations:
+        x_new = G @ x + C
+        err = np.linalg.norm(x_new - x)
+        # print(f"Iteration {iterations}, error: {err}")
+        if err < tolerance:
+            break
+        x = x_new
+        iterations += 1
+
+    return x
+
+def solve_gauss_seidel(A: np.ndarray, b: np.ndarray, max_iterations: int = 1000, tolerance: float = 1e-6):
+    # A = D + L + U
+    # x_next = (D + L)^{-1} @ (-U @ x_prev + b)
+
+    x = np.zeros_like(b)
+    iterations = 0
+    while iterations < max_iterations:
+        x_new = np.zeros_like(x)
+        for i in range(x_new.shape[0]):
+            x_new[i] = (b[i] - np.dot(A[i, :i], x_new[:i]) - np.dot(A[i, i+1:], x[i+1:])) / A[i, i]
+        x = x_new
+        err = np.linalg.norm(A @ x - b)
+        # print(f"Iteration {iterations}, error: {err}")
+        if err < tolerance:
+            break
+        iterations += 1
+
+    return x
