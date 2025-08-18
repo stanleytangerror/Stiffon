@@ -1,8 +1,10 @@
+import numpy as np
+np.seterr(all='raise')
+
 from numpy.linalg import norm
-from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetric_matrix, normalized, solve_jacobian
+from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetric_matrix, normalized, solve_jacobian, solve_gauss_seidel
 from geometry import Box, Sphere, Plane, Shape, intersect   
 from renderer import Renderer
-import numpy as np
 from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation as R
 
@@ -202,6 +204,82 @@ class PinConstraint:
 
         rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = solve_gauss_seidel(effective_mass, rhs)
+        impulse = self.jacobian.transpose() @ lamdba_
+        generic_delta_velocity += self.generic_inv_mass @ impulse
+
+        self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity = generic_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity = generic_delta_velocity[9:12, 0].reshape(3)
+
+class HingeRotationConstraintPart:
+    def __init__(self, body_A: Body, body_B: Body, axis: Vec3):
+        assert norm(axis) >= 1e-10
+        axis_normalized = axis / norm(axis)
+        self.body_A = body_A
+        self.body_B = body_B
+        self.axis_A = body_A.pose.basis.transpose() @ axis_normalized
+        self.axis_B = body_B.pose.basis.transpose() @ axis_normalized
+        if abs(np.dot(self.axis_A, Vec3(1, 0, 0))) <= 1e-10:
+            self.normal_B = np.cross(self.axis_B, Vec3(0, 1, 0))
+        else:
+            self.normal_B = np.cross(self.axis_B, Vec3(1, 0, 0))
+        self.normal_B = self.normal_B / norm(self.normal_B)
+        self.tangent_B = np.cross(self.axis_B, self.normal_B)
+    
+    def setup(self, dt: float):
+        # C = (a_A * n_B) = (0)
+        #     (a_A * t_B)   (0)
+        a_A = self.body_A.pose.basis.transpose() @ self.axis_A
+        n_B = self.body_B.pose.basis.transpose() @ self.normal_B
+        t_B = self.body_B.pose.basis.transpose() @ self.tangent_B
+
+        c_init = np.array([
+            [np.dot(a_A, n_B)], 
+            [np.dot(a_A, t_B)]
+        ])
+
+        self.jacobian = np.zeros((2, 12))
+        self.jacobian[0, 0:3] = np.zeros(3)
+        self.jacobian[0, 3:6] = np.cross(a_A, n_B)
+        self.jacobian[0, 6:9] = np.zeros(3)
+        self.jacobian[0, 9:12] = -np.cross(a_A, n_B)
+        self.jacobian[1, 0:3] = np.zeros(3)
+        self.jacobian[1, 3:6] = np.cross(a_A, t_B)
+        self.jacobian[1, 6:9] = np.zeros(3)
+        self.jacobian[1, 9:12] = -np.cross(a_A, t_B)
+
+        self.generic_inv_mass = np.zeros((12, 12))
+        self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
+        self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia_world
+        self.generic_inv_mass[6:9, 6:9] = self.body_B.inv_mass
+        self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
+
+        self.generic_velocity = np.zeros((12, 1))
+        self.generic_velocity[0:3, 0] = self.body_A.linear_velocity
+        self.generic_velocity[3:6, 0] = self.body_A.angular_velocity
+        self.generic_velocity[6:9, 0] = self.body_B.linear_velocity
+        self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
+
+        self.generic_external_impulse = np.zeros((12, 1))
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
+
+        erp = 0.2
+        self.bias = erp / dt * c_init
+
+    def iteration(self):
+        generic_delta_velocity = np.zeros((12, 1))
+        generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
+        generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
+        generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
+        generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
+
+        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_jacobian(effective_mass, rhs)
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
@@ -211,6 +289,18 @@ class PinConstraint:
         self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
         self.body_B.delta_angular_velocity = generic_delta_velocity[9:12, 0].reshape(3)
 
+class HingeConstraint:
+    def __init__(self, body_A: Body, body_B: Body, anchor: Vec3, axis: Vec3):
+        self.translation_constraint = PinConstraint(body_A, body_B, anchor, anchor)
+        self.rotation_constraint = HingeRotationConstraintPart(body_A, body_B, axis)
+    
+    def setup(self, dt: float):
+        self.translation_constraint.setup(dt)
+        self.rotation_constraint.setup(dt)
+    
+    def iteration(self):
+        self.translation_constraint.iteration()
+        self.rotation_constraint.iteration()
 
 class Scene:
     def __init__(self):
@@ -248,6 +338,9 @@ class Scene:
     
     def add_pin_constraint(self, body_A: Body, body_B: Body, anchor_A: Vec3, anchor_B: Vec3):
         self.persistent_constraints.append(PinConstraint(body_A, body_B, anchor_A, anchor_B))
+    
+    def add_hinge_constraint(self, body_A: Body, body_B: Body, anchor: Vec3, axis: Vec3):
+        self.persistent_constraints.append(HingeConstraint(body_A, body_B, anchor, axis))
     
     def contact_detection(self):
         for i, body in enumerate(self.bodies):
