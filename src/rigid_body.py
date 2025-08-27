@@ -76,18 +76,21 @@ class ContactConstraint:
         bias = erp * max(-self.max_penetration, self.C) / dt
         self.bias = np.ones((3, 1)) * bias
 
-    def iteration(self):
+    def iteration(self, with_baumgarte_stabilization: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        if with_baumgarte_stabilization:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
 
-        lsq_result = lsq_linear(effective_mass, rhs.reshape(3), bounds=(0, np.inf))
-        lamdba_ = lsq_result.x.reshape(3, 1)
+        lamdba_ = solve_gauss_seidel(effective_mass, rhs.reshape(3))
 
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
@@ -138,14 +141,18 @@ class DistanceConstraint:
         erp = 0.0
         self.bias = erp / dt * c_init
 
-    def iteration(self):
+    def iteration(self, with_baumgarte_stabilization: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        if with_baumgarte_stabilization:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = np.linalg.inv(effective_mass) @ rhs
         impulse = self.jacobian.transpose() @ lamdba_
@@ -195,14 +202,18 @@ class PinConstraint:
         erp = 0.2
         self.bias = erp / dt * c_init.reshape(3, 1)
 
-    def iteration(self):
+    def iteration(self, with_baumgarte_stabilization: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        if with_baumgarte_stabilization:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_gauss_seidel(effective_mass, rhs)
         impulse = self.jacobian.transpose() @ lamdba_
@@ -271,14 +282,18 @@ class HingeRotationConstraintPart:
         erp = 0.2
         self.bias = erp / dt * c_init
 
-    def iteration(self):
+    def iteration(self, with_baumgarte_stabilization: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        if with_baumgarte_stabilization:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_jacobian(effective_mass, rhs)
         impulse = self.jacobian.transpose() @ lamdba_
@@ -298,9 +313,9 @@ class HingeConstraint:
         self.translation_constraint.setup(dt)
         self.rotation_constraint.setup(dt)
     
-    def iteration(self):
-        self.translation_constraint.iteration()
-        self.rotation_constraint.iteration()
+    def iteration(self, with_baumgarte_stabilization: bool):
+        self.translation_constraint.iteration(with_baumgarte_stabilization)
+        self.rotation_constraint.iteration(with_baumgarte_stabilization)
 
 class Scene:
     def __init__(self):
@@ -308,24 +323,29 @@ class Scene:
         self.bodies = []
         self.temporary_constraints = []
         self.persistent_constraints = []
-        self.constraint_iterations = 1
+        self.position_iterations = 2
+        self.velocity_iterations = 5
 
     def add_body(self, body: Body):
         self.bodies.append(body)
 
     def step_simulation(self, dt: float):
         self.apply_gravity()
+
         # self.contact_detection()
+        
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
         for constraint in self.persistent_constraints:
             constraint.setup(dt)
-        for i in range(self.constraint_iterations):
+        for _ in range(self.position_iterations):
             for constraint in self.temporary_constraints:
-                constraint.iteration()
+                constraint.iteration(with_baumgarte_stabilization=True)
+        self.post_position_iteration(dt)
+        for _ in range(self.velocity_iterations):
             for constraint in self.persistent_constraints:
-                constraint.iteration()
-        self.integrate_position(dt)
+                constraint.iteration(with_baumgarte_stabilization=False)
+        self.post_velocity_iteration(dt)
         self.temporary_constraints.clear()
 
     def apply_gravity(self):
@@ -352,14 +372,22 @@ class Scene:
                     print(f"Contact detected between {body} and {other_body}")
                     self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal))
 
-    def integrate_position(self, dt: float):
+    def post_position_iteration(self, dt: float):
+        for body in self.bodies:
+            new_linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass @ body.total_force * dt
+            new_angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world @ body.total_torque * dt
+            
+            body.pose = integrate_transform(body.pose, new_linear_velocity, new_angular_velocity, dt)
+            body.inv_inertia_world = body.pose.basis @ body.inv_inertia @ body.pose.basis.transpose()
+
+            body.delta_linear_velocity = Vec3(0, 0, 0)
+            body.delta_angular_velocity = Vec3(0, 0, 0)
+
+    def post_velocity_iteration(self, dt: float):
         for body in self.bodies:
             body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass @ body.total_force * dt
             body.angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world @ body.total_torque * dt
             
-            body.pose = integrate_transform(body.pose, body.linear_velocity, body.angular_velocity, dt)
-            body.inv_inertia_world = body.pose.basis @ body.inv_inertia @ body.pose.basis.transpose()
-
             body.total_force = Vec3(0, 0, 0)
             body.total_torque = Vec3(0, 0, 0)
             body.delta_linear_velocity = Vec3(0, 0, 0)
