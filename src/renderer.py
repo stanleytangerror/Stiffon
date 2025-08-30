@@ -218,19 +218,19 @@ class MeshInstances:
 
     def add_box(self, world_mat, color):
         if self.box_count < self.max_mesh_instance_count:
-            self.box_transforms[self.box_count] = world_mat.transpose()
+            self.box_transforms[self.box_count] = world_mat
             self.box_colors.append(color)
             self.box_count += 1
 
     def add_sphere(self, world_mat, color):
         if self.sphere_count < self.max_mesh_instance_count:
-            self.sphere_transforms[self.sphere_count] = world_mat.transpose()
+            self.sphere_transforms[self.sphere_count] = world_mat
             self.sphere_colors.append(color)
             self.sphere_count += 1
 
     def add_plane(self, world_mat, color):
         if self.plane_count < self.max_mesh_instance_count:
-            self.plane_transforms[self.plane_count] = world_mat.transpose()
+            self.plane_transforms[self.plane_count] = world_mat
             self.plane_colors.append(color)
             self.plane_count += 1
 
@@ -287,6 +287,6 @@ if __name__ == "__main__":
     while renderer.is_running():
         renderer.begin_frame()
 
-        renderer.draw_box(create_world_matrix(), color=np.array([0.0, 1.0, 1.0]))
+        renderer.draw_box(create_world_matrix(np.array([1.0, 0.0, 0.0])), color=np.array([0.0, 1.0, 1.0]))
 
         renderer.end_frame()
