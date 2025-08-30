@@ -13,8 +13,8 @@ def render_boxs_and_spheres():
     program_start_time = time.time()
 
     renderer = Renderer(width=800, height=600)
-    renderer.set_camera(eye=np.array([0.0, -50.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
-    renderer.set_fov(fov_radians=math.pi * 0.8)
+    renderer.set_camera(eye=np.array([0.0, -5.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    renderer.set_fov(fov=90)
 
     while renderer.is_running():
         renderer.begin_frame()

@@ -21,7 +21,7 @@ class Renderer:
         self.camera_eye = np.array([0.0, -10.0, 0.0])
         self.camera_target = np.array([0.0, 0.0, 0.0])
         self.camera_up = np.array([0.0, 0.0, 1.0])
-        self.lens_fov = ti.math.pi * 0.5
+        self.lens_fov = 90
 
         # Store objects to render
         self.mesh_instances = MeshInstances()
@@ -34,8 +34,8 @@ class Renderer:
         self.camera_target = target
         self.camera_up = up
 
-    def set_fov(self, fov_radians):
-        self.lens_fov = fov_radians
+    def set_fov(self, fov):
+        self.lens_fov = fov
 
     def draw_box(self, world_mat, color):
         self.mesh_instances.add_box(world_mat, color)
@@ -52,8 +52,6 @@ class Renderer:
 
     def end_frame(self):
         self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
-
-        self.canvas.set_background_color((1.0, 1.0, 1.0))
 
         # Setup camera
         self.camera.position(self.camera_eye[0], self.camera_eye[1], self.camera_eye[2])
@@ -218,19 +216,19 @@ class MeshInstances:
 
     def add_box(self, world_mat, color):
         if self.box_count < self.max_mesh_instance_count:
-            self.box_transforms[self.box_count] = world_mat
+            self.box_transforms[self.box_count] = np.array(world_mat)
             self.box_colors.append(color)
             self.box_count += 1
 
     def add_sphere(self, world_mat, color):
         if self.sphere_count < self.max_mesh_instance_count:
-            self.sphere_transforms[self.sphere_count] = world_mat
+            self.sphere_transforms[self.sphere_count] = np.array(world_mat)
             self.sphere_colors.append(color)
             self.sphere_count += 1
 
     def add_plane(self, world_mat, color):
         if self.plane_count < self.max_mesh_instance_count:
-            self.plane_transforms[self.plane_count] = world_mat
+            self.plane_transforms[self.plane_count] = np.array(world_mat)
             self.plane_colors.append(color)
             self.plane_count += 1
 
@@ -281,8 +279,8 @@ if __name__ == "__main__":
     program_start_time = time.time()
 
     renderer = Renderer(width=800, height=600)
-    renderer.set_camera(eye=np.array([0.0, -50.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
-    renderer.set_fov(fov_radians=ti.math.pi * 0.8)
+    renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    renderer.set_fov(fov=90)
 
     while renderer.is_running():
         renderer.begin_frame()

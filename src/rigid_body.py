@@ -418,7 +418,7 @@ class SceneDebugRenderer:
         
         elif isinstance(body.geometry, Sphere):
             scale_matrix = np.diag(np.array([body.geometry.radius * 2, body.geometry.radius * 2, body.geometry.radius * 2, 1.0]))
-            self.renderer.draw_sphere(world_matrix @ scale_matrix, color, 10)
+            self.renderer.draw_sphere(world_matrix @ scale_matrix, color)
     
     def draw_constraint(self, constraint, color: np.ndarray):
         scale = 0.4
