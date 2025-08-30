@@ -2,7 +2,7 @@ import taichi as ti
 import numpy as np
 from scipy.spatial.transform.rotation import Rotation as R
 import time
-from math_utils import normalized
+from math_utils import normalized, create_world_matrix
 
 class Renderer:
     def __init__(self, width, height):
@@ -34,8 +34,8 @@ class Renderer:
         self.camera_target = target
         self.camera_up = up
 
-    def set_fov(self, fov):
-        self.lens_fov = fov
+    def set_fov(self, fov_radians):
+        self.lens_fov = fov_radians
 
     def draw_box(self, world_mat, color):
         self.mesh_instances.add_box(world_mat, color)
@@ -51,7 +51,7 @@ class Renderer:
         self.mesh_instances.clear()
 
     def end_frame(self):
-        # self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
+        self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
 
         self.canvas.set_background_color((1.0, 1.0, 1.0))
 
@@ -251,6 +251,7 @@ class MeshInstances:
             transforms=self.box_transforms, 
             instance_offset=0,
             instance_count=self.box_count,
+            two_sided=True,
             )
 
         scene.mesh_instance(
@@ -261,6 +262,7 @@ class MeshInstances:
             color=(0.0, 1.0, 0.0),
             instance_offset=0,
             instance_count=self.sphere_count,
+            two_sided=True,
             )
             
         scene.mesh_instance(
@@ -271,6 +273,7 @@ class MeshInstances:
             color=(0.0, 0.0, 1.0),
             instance_offset=0,
             instance_count=self.plane_count,
+            two_sided=True,
             )
 
 
@@ -278,68 +281,12 @@ if __name__ == "__main__":
     program_start_time = time.time()
 
     renderer = Renderer(width=800, height=600)
+    renderer.set_camera(eye=np.array([0.0, -50.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    renderer.set_fov(fov_radians=ti.math.pi * 0.8)
 
     while renderer.is_running():
         renderer.begin_frame()
 
-        frame_start_time = time.time()
-        relative_time = frame_start_time - program_start_time 
-
-        # Create world matrices manually since we don't have the world_matrix function
-        def create_world_matrix(translate=None, rotate=None, scale=None):
-            matrix = np.eye(4)
-            
-            if scale is not None:
-                scale_matrix = np.eye(4)
-                scale_matrix[0, 0] = scale[0]
-                scale_matrix[1, 1] = scale[1]
-                scale_matrix[2, 2] = scale[2]
-                matrix = scale_matrix @ matrix
-            
-            if rotate is not None:
-                if hasattr(rotate, 'as_matrix'):
-                    rot_matrix = rotate.as_matrix()
-                else:
-                    rot_matrix = np.eye(3)
-                full_rot_matrix = np.eye(4)
-                full_rot_matrix[:3, :3] = rot_matrix
-                matrix = full_rot_matrix @ matrix
-            
-            if translate is not None:
-                translate_matrix = np.eye(4)
-                translate_matrix[:3, 3] = translate
-                matrix = translate_matrix @ matrix
-            
-            return matrix
-
-        renderer.draw_box(create_world_matrix(
-                                translate=np.array([np.sin(relative_time), 0.0, np.cos(relative_time)]) * 0.5,
-                                rotate=R.from_rotvec(np.zeros(3)),
-                                scale=np.array([0.3, 0.3, 0.3])),
-                                color=np.array([1.0, 0.0, 0.0]))
-
-        renderer.draw_box(create_world_matrix(
-                                rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * relative_time, degrees=False),
-                                translate=np.array([1.0, 0.0, 0.0]),
-                                scale=np.array([0.3, 0.3, 0.3])),
-                                color=np.array([0.0, 1.0, 0.0]))
-
-        renderer.draw_box(create_world_matrix(
-                                rotate=R.from_rotvec(np.zeros(3)),
-                                translate=np.array([-1.0, 0.0, 0.0]),
-                                scale=np.array([np.sin(relative_time) * 0.5 + 0.5, 0.4, np.cos(relative_time) * 0.5 + 0.5])),
-                                color=np.array([0.0, 0.0, 1.0]))
-
-        renderer.draw_sphere(create_world_matrix(
-                                translate=np.array([np.sin(-relative_time), 0.0, np.cos(-relative_time)]) * 0.5,
-                                rotate=R.from_rotvec(np.zeros(3)),
-                                scale=np.array([0.3, 0.3, 0.3])),
-                                color=np.array([1.0, 1.0, 1.0]))
-
-        renderer.draw_sphere(create_world_matrix(
-                                rotate=R.from_rotvec(rotvec=normalized(np.array([1.0, 1.0, 1.0])) * -relative_time, degrees=False),
-                                translate=np.array([1.0, 2.0, 0.0]),
-                                scale=np.array([0.3, 0.3, 0.3])),
-                                color=np.array([0.0, 1.0, 1.0]))
+        renderer.draw_box(create_world_matrix(), color=np.array([0.0, 1.0, 1.0]))
 
         renderer.end_frame()

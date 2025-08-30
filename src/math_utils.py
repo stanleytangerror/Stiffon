@@ -159,6 +159,32 @@ class Transform:
         result[:3, 3] = self.origin
         return Mat44(result)
 
+def create_world_matrix(translate=None, rotate=None, scale=None):
+    matrix = np.eye(4)
+    
+    if scale is not None:
+        scale_matrix = np.eye(4)
+        scale_matrix[0, 0] = scale[0]
+        scale_matrix[1, 1] = scale[1]
+        scale_matrix[2, 2] = scale[2]
+        matrix = scale_matrix @ matrix
+    
+    if rotate is not None:
+        if hasattr(rotate, 'as_matrix'):
+            rot_matrix = rotate.as_matrix()
+        else:
+            rot_matrix = np.eye(3)
+        full_rot_matrix = np.eye(4)
+        full_rot_matrix[:3, :3] = rot_matrix
+        matrix = full_rot_matrix @ matrix
+    
+    if translate is not None:
+        translate_matrix = np.eye(4)
+        translate_matrix[:3, 3] = translate
+        matrix = translate_matrix @ matrix
+    
+    return matrix
+
 def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_velocity: Vec3, dt: float):
     new_origin = transform.origin + linear_velocity * dt
     new_basis = R.from_rotvec(angular_velocity * dt).as_matrix() @ R.from_matrix(transform.basis).as_matrix()
