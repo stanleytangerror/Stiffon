@@ -48,11 +48,11 @@ class ContactConstraint:
         self.max_penetration = 0.01
 
     def setup(self, dt: float):
-        self.jacobian = np.zeros((3, 12))
-        self.jacobian[0:3, 0:3] = -np.diag(self.normal_A)
-        self.jacobian[0:3, 3:6] = self.normal_A.transpose() @ skew_symmetric_matrix(self.body_A.pose.basis @ self.r_A)
-        self.jacobian[0:3, 6:9] = np.diag(self.normal_A)
-        self.jacobian[0:3, 9:12] = -self.normal_A.transpose() @ skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
+        self.jacobian = np.zeros((1, 12))
+        self.jacobian[:, 0:3] = -self.normal_A
+        self.jacobian[:, 3:6] = -np.cross(self.body_A.pose.basis @ self.r_A, self.normal_A)
+        self.jacobian[:, 6:9] = self.normal_A
+        self.jacobian[:, 9:12] = np.cross(self.body_B.pose.basis @ self.r_B, self.normal_A)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
@@ -73,8 +73,7 @@ class ContactConstraint:
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
         erp = 0.2
-        bias = erp * max(-self.max_penetration, self.C) / dt
-        self.bias = np.ones((3, 1)) * bias
+        self.bias = erp * max(-self.max_penetration, self.C) / dt
 
     def iteration(self, with_baumgarte_stabilization: bool):
         generic_delta_velocity = np.zeros((12, 1))
@@ -90,7 +89,7 @@ class ContactConstraint:
 
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
 
-        lamdba_ = solve_gauss_seidel(effective_mass, rhs.reshape(3))
+        lamdba_ = np.linalg.inv(effective_mass) @ rhs
 
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
@@ -332,7 +331,7 @@ class Scene:
     def step_simulation(self, dt: float):
         self.apply_gravity()
 
-        # self.contact_detection()
+        self.contact_detection()
         
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
