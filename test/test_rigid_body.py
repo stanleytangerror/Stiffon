@@ -19,7 +19,7 @@ def test_contact_constraint_0():
     scene.add_body(sphere3)
     sphere4 = Body(mass=1.0, linear_velocity=Vec3(0.0, 0.0, -10.0), pose=Transform(Vec3(0.0, 0.0, -3.0), Mat33.identity()), geometry=Sphere(1.0))
     scene.add_body(sphere4)
-    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, -7.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 1.0), 0.0))
+    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, -7.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 0.0), Vec3(0.0, 0.0, 1.0)))
     scene.add_body(ground)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
@@ -35,7 +35,7 @@ def test_contact_constraint_1():
     sphere1 = Body(mass=1.0, linear_velocity=Vec3(1.0, 0.0, 10.0), pose=Transform(Vec3(-1.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(sphere1)
 
-    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(1.0, 0.0, 1.0), 0.0))
+    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 1.0)))
     scene.add_body(ground)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
@@ -50,8 +50,8 @@ def test_contact_constraint_2():
     count = 3
     scene = Scene()
 
-    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(1.0, 0.0, 1.0), 0.0)))
-    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(-1.0, 0.0, 1.0), 0.0)))
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 1.0))))
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 0.0), Vec3(-1.0, 0.0, 1.0))))
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
@@ -76,9 +76,9 @@ def test_contact_constraint_3():
     count = 3
     scene = Scene()
 
-    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 1.0), 0.0)))
-    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(1.0, 0.0, 0.0), 3.0)))
-    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(-1.0, 0.0, 0.0), -3.0)))
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 0.0), Vec3(0.0, 0.0, 1.0))))
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(3.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0))))
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(-3.0, 0.0, 0.0), Vec3(-1.0, 0.0, 0.0))))
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
