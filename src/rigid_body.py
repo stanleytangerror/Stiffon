@@ -37,7 +37,7 @@ class Body:
 class ContactConstraint:
     # Constraint function: C = -normal_A * (X_A + R_A * r_A - X_B - R_B * r_B) >= 0
     # Jacobian: J = [ -normal_A, normal_A * [R_A*r_A]x, normal_A, -normal_A * [R_B*r_B]x ]
-    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3):
+    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3, impulse_warm_start: np.array = np.zeros((12, 1))):
         self.body_A = body_A
         self.body_B = body_B
         self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
@@ -46,6 +46,7 @@ class ContactConstraint:
         self.C = np.dot(-normal_A, point_A - point_B)
         print(f"Constraint function: {self.C}")
         self.max_penetration = 0.01
+        self.impulse_warm_start = impulse_warm_start
 
     def setup(self, dt: float):
         self.jacobian = np.zeros((1, 12))
@@ -72,6 +73,14 @@ class ContactConstraint:
         self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
+        # warm start
+        self.applied_impulse = self.impulse_warm_start
+        warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+        self.body_A.delta_linear_velocity = warm_start_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity = warm_start_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity = warm_start_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity = warm_start_delta_velocity[9:12, 0].reshape(3)
+
         erp = 0.2
         self.bias = erp * max(-self.max_penetration, self.C) / dt
 
@@ -90,8 +99,8 @@ class ContactConstraint:
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
 
         lamdba_ = np.linalg.inv(effective_mass) @ rhs
-
         impulse = self.jacobian.transpose() @ lamdba_
+        self.applied_impulse += impulse
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
@@ -321,17 +330,22 @@ class Scene:
         self.gravity = Vec3(0.0, 0.0, -10.0)
         self.bodies = []
         self.temporary_constraints = []
+        self.last_temporary_constraints = []
+        self.last_delta_time = None
         self.persistent_constraints = []
-        self.position_iterations = 2
-        self.velocity_iterations = 5
+        self.position_iterations = 1
+        self.velocity_iterations = 1
 
     def add_body(self, body: Body):
         self.bodies.append(body)
 
     def step_simulation(self, dt: float):
+        if self.last_delta_time is None:
+            self.last_delta_time = dt
+
         self.apply_gravity()
 
-        self.contact_detection()
+        self.contact_detection(dt)
         
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
@@ -340,11 +354,20 @@ class Scene:
         for _ in range(self.position_iterations):
             for constraint in self.temporary_constraints:
                 constraint.iteration(with_baumgarte_stabilization=True)
+        for _ in range(self.velocity_iterations):
+            for constraint in self.persistent_constraints:
+                constraint.iteration(with_baumgarte_stabilization=True)
         self.post_position_iteration(dt)
+        for _ in range(self.position_iterations):
+            for constraint in self.temporary_constraints:
+                constraint.iteration(with_baumgarte_stabilization=False)
         for _ in range(self.velocity_iterations):
             for constraint in self.persistent_constraints:
                 constraint.iteration(with_baumgarte_stabilization=False)
         self.post_velocity_iteration(dt)
+
+        self.last_temporary_constraints = self.temporary_constraints.copy()
+        self.last_delta_time = dt
         self.temporary_constraints.clear()
 
     def apply_gravity(self):
@@ -361,7 +384,7 @@ class Scene:
     def add_hinge_constraint(self, body_A: Body, body_B: Body, anchor: Vec3, axis: Vec3):
         self.persistent_constraints.append(HingeConstraint(body_A, body_B, anchor, axis))
     
-    def contact_detection(self):
+    def contact_detection(self, dt: float):
         for i, body in enumerate(self.bodies):
             for j, other_body in enumerate(self.bodies):
                 if i >= j:
@@ -369,7 +392,17 @@ class Scene:
                 contact_result = intersect(Shape(body.geometry, body.pose), Shape(other_body.geometry, other_body.pose))
                 if contact_result.intersects:
                     print(f"Contact detected between {body} and {other_body}")
-                    self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal))
+                    last_impulse_for_warm_start = np.zeros((12, 1))
+                    constraint = next((constraint for constraint in self.last_temporary_constraints if constraint.body_A == body and constraint.body_B == other_body), None)
+                    if constraint is not None:
+                        last_impulse_for_warm_start = constraint.applied_impulse
+                    else:
+                        constraint = next((constraint for constraint in self.last_temporary_constraints if constraint.body_A == other_body and constraint.body_B == body), None)
+                        if constraint is not None:
+                            last_impulse_for_warm_start = -constraint.applied_impulse
+
+                    last_impulse_for_warm_start *= dt / self.last_delta_time
+                    self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal, last_impulse_for_warm_start))
 
     def post_position_iteration(self, dt: float):
         for body in self.bodies:

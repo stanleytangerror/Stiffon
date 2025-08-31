@@ -8,7 +8,28 @@ import time
 import numpy as np
 from rigid_body import Scene, SceneDebugRenderer, Body, Vec3, Transform, Mat33, Sphere, Plane, Box
 
-def test_contact_constraint():
+def test_contact_constraint_0():
+    scene = Scene()
+
+    sphere1 = Body(mass=1.0, linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(0.0, 0.0, 7.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(sphere1)
+    sphere2 = Body(mass=1.0, linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(0.0, 0.0, 5.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(sphere2)
+    sphere3 = Body(mass=1.0, linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(0.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(sphere3)
+    sphere4 = Body(mass=1.0, linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(0.0, 0.0, 1.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(sphere4)
+    ground = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, -1.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 1.0), 0.0))
+    scene.add_body(ground)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    while renderer.is_running():
+        scene.step_simulation(0.01)
+        renderer.render()
+        
+def test_contact_constraint_1():
     scene = Scene()
     
     sphere1 = Body(mass=1.0, linear_velocity=Vec3(1.0, 0.0, 10.0), pose=Transform(Vec3(-1.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5))
@@ -165,4 +186,4 @@ def test_hinge_constraint():
         renderer.render()    
 
 if __name__ == "__main__":
-    test_contact_constraint_3()
+    test_contact_constraint_0()
