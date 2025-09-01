@@ -73,25 +73,26 @@ class ContactConstraint:
         self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
-        # warm start
-        self.applied_impulse = self.impulse_warm_start
-        warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
-        self.body_A.delta_linear_velocity = warm_start_delta_velocity[0:3, 0].reshape(3)
-        self.body_A.delta_angular_velocity = warm_start_delta_velocity[3:6, 0].reshape(3)
-        self.body_B.delta_linear_velocity = warm_start_delta_velocity[6:9, 0].reshape(3)
-        self.body_B.delta_angular_velocity = warm_start_delta_velocity[9:12, 0].reshape(3)
-
         erp = 0.2
         self.bias = erp * max(-self.max_penetration, self.C) / dt
 
-    def iteration(self, with_baumgarte_stabilization: bool):
+    def warm_up(self):
+        self.applied_impulse = self.impulse_warm_start
+        warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+
+        self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity += warm_start_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity += warm_start_delta_velocity[9:12, 0].reshape(3)
+
+    def iteration(self, is_positional_iteration: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        if with_baumgarte_stabilization:
+        if is_positional_iteration:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         else:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
@@ -100,7 +101,10 @@ class ContactConstraint:
 
         lamdba_ = np.linalg.inv(effective_mass) @ rhs
         impulse = self.jacobian.transpose() @ lamdba_
-        self.applied_impulse += impulse
+
+        if not is_positional_iteration:
+            self.applied_impulse += impulse
+
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
@@ -115,6 +119,8 @@ class DistanceConstraint:
         self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
         self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.distance = distance
+        self.position_iteration_applied_impulse = np.zeros((12, 1))
+        self.applied_impulse = np.zeros((12, 1))
     
     def setup(self, dt: float):
         a = self.body_A.pose.basis @ self.r_A + self.body_A.pose.origin
@@ -145,18 +151,27 @@ class DistanceConstraint:
         self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
         self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
-
+        
+        # Baumgarte stabilization
         erp = 0.0
         self.bias = erp / dt * c_init
 
-    def iteration(self, with_baumgarte_stabilization: bool):
+    def warm_up(self):
+        warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+
+        self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity += warm_start_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity += warm_start_delta_velocity[9:12, 0].reshape(3)
+
+    def iteration(self, is_positional_iteration: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        if with_baumgarte_stabilization:
+        if is_positional_iteration:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         else:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
@@ -164,6 +179,10 @@ class DistanceConstraint:
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = np.linalg.inv(effective_mass) @ rhs
         impulse = self.jacobian.transpose() @ lamdba_
+
+        if not is_positional_iteration:
+            self.applied_impulse += impulse
+
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
@@ -210,14 +229,14 @@ class PinConstraint:
         erp = 0.2
         self.bias = erp / dt * c_init.reshape(3, 1)
 
-    def iteration(self, with_baumgarte_stabilization: bool):
+    def iteration(self, is_positional_iteration: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        if with_baumgarte_stabilization:
+        if is_positional_iteration:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         else:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
@@ -290,14 +309,14 @@ class HingeRotationConstraintPart:
         erp = 0.2
         self.bias = erp / dt * c_init
 
-    def iteration(self, with_baumgarte_stabilization: bool):
+    def iteration(self, is_positional_iteration: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
         generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
         generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
         generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
 
-        if with_baumgarte_stabilization:
+        if is_positional_iteration:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         else:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
@@ -321,9 +340,9 @@ class HingeConstraint:
         self.translation_constraint.setup(dt)
         self.rotation_constraint.setup(dt)
     
-    def iteration(self, with_baumgarte_stabilization: bool):
-        self.translation_constraint.iteration(with_baumgarte_stabilization)
-        self.rotation_constraint.iteration(with_baumgarte_stabilization)
+    def iteration(self, is_positional_iteration: bool):
+        self.translation_constraint.iteration(is_positional_iteration)
+        self.rotation_constraint.iteration(is_positional_iteration)
 
 class Scene:
     def __init__(self):
@@ -351,19 +370,30 @@ class Scene:
             constraint.setup(dt)
         for constraint in self.persistent_constraints:
             constraint.setup(dt)
+
+        for constraint in self.temporary_constraints:
+            constraint.warm_up()
+        for constraint in self.persistent_constraints:
+            constraint.warm_up()
+
         for _ in range(self.position_iterations):
             for constraint in self.temporary_constraints:
-                constraint.iteration(with_baumgarte_stabilization=True)
+                constraint.iteration(is_positional_iteration=True)
         for _ in range(self.velocity_iterations):
             for constraint in self.persistent_constraints:
-                constraint.iteration(with_baumgarte_stabilization=True)
+                constraint.iteration(is_positional_iteration=True)
         self.post_position_iteration(dt)
+
+        for constraint in self.temporary_constraints:
+            constraint.warm_up()
+        for constraint in self.persistent_constraints:
+            constraint.warm_up()
         for _ in range(self.position_iterations):
             for constraint in self.temporary_constraints:
-                constraint.iteration(with_baumgarte_stabilization=False)
+                constraint.iteration(is_positional_iteration=False)
         for _ in range(self.velocity_iterations):
             for constraint in self.persistent_constraints:
-                constraint.iteration(with_baumgarte_stabilization=False)
+                constraint.iteration(is_positional_iteration=False)
         self.post_velocity_iteration(dt)
 
         self.last_temporary_constraints = self.temporary_constraints.copy()
