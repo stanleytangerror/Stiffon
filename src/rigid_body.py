@@ -119,23 +119,25 @@ class DistanceConstraint:
     def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, distance: float):
         self.body_A = body_A
         self.body_B = body_B
-        self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
-        self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
+        self.anchor_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
+        self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.distance = distance
         self.position_iteration_applied_impulse = np.zeros((12, 1))
         self.applied_impulse = np.zeros((12, 1))
     
     def setup(self, dt: float):
-        a = self.body_A.pose.basis @ self.r_A + self.body_A.pose.origin
-        b = self.body_B.pose.basis @ self.r_B + self.body_B.pose.origin
-        n = normalized(a - b)
-        c_init = norm(a - b) - self.distance
+        r_A = self.body_A.pose.basis @ self.anchor_A
+        r_B = self.body_B.pose.basis @ self.anchor_B
+
+        disp = self.body_A.pose.origin + r_A - self.body_B.pose.origin - r_B
+        n = normalized(disp)
+        c_init = norm(disp) - self.distance
 
         self.jacobian = np.zeros((1, 12))
         self.jacobian[0, 0:3] = n.transpose()
-        self.jacobian[0, 3:6] = -n.transpose() @ skew_symmetric_matrix(self.body_A.pose.basis @ self.r_A)
+        self.jacobian[0, 3:6] = -n.transpose() @ skew_symmetric_matrix(r_A)
         self.jacobian[0, 6:9] = -n.transpose()
-        self.jacobian[0, 9:12] = n.transpose() @ skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
+        self.jacobian[0, 9:12] = n.transpose() @ skew_symmetric_matrix(r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
@@ -156,7 +158,7 @@ class DistanceConstraint:
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
         
         # Baumgarte stabilization
-        erp = 0.0
+        erp = 0.2
         self.bias = erp / dt * c_init
 
     def warm_up(self):
@@ -561,8 +563,8 @@ class SceneDebugRenderer:
         scale = 0.4
         scale_matrix = np.diag(np.array([scale, scale, scale, 1.0]))
         if isinstance(constraint, DistanceConstraint):
-            mat_A = constraint.body_A.pose.to_matrix() @ Transform(constraint.r_A, Mat33.identity()).to_matrix() @ scale_matrix
-            mat_B = constraint.body_B.pose.to_matrix() @ Transform(constraint.r_B, Mat33.identity()).to_matrix() @ scale_matrix
+            mat_A = constraint.body_A.pose.to_matrix() @ Transform(constraint.anchor_A, Mat33.identity()).to_matrix() @ scale_matrix
+            mat_B = constraint.body_B.pose.to_matrix() @ Transform(constraint.anchor_B, Mat33.identity()).to_matrix() @ scale_matrix
             self.renderer.draw_sphere(mat_A, color)
             self.renderer.draw_sphere(mat_B, color)
 
