@@ -35,13 +35,13 @@ class Body:
         self.total_torque += np.cross(point - self.pose.origin, force)
 
 class ContactConstraint:
-    # Constraint function: C = -normal_A * (X_A + R_A * r_A - X_B - R_B * r_B) >= 0
-    # Jacobian: J = [ -normal_A, normal_A * [R_A*r_A]x, normal_A, -normal_A * [R_B*r_B]x ]
+    # Constraint function: C = -normal_A * (x_A + r_A - x_B - r_B) >= 0
+    # Jacobian: J = [ -normal_A, normal_A x r_A, normal_A, -normal_A x r_B ]
     def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3, impulse_warm_start: np.array = np.zeros((12, 1))):
         self.body_A = body_A
         self.body_B = body_B
-        self.r_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
-        self.r_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
+        self.anchor_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
+        self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.normal_A = normal_A
         self.C = np.dot(-normal_A, point_A - point_B)
         print(f"Constraint function: {self.C}")
@@ -49,11 +49,14 @@ class ContactConstraint:
         self.impulse_warm_start = impulse_warm_start
 
     def setup(self, dt: float):
+        r_A = self.body_A.pose.basis @ self.anchor_A
+        r_B = self.body_B.pose.basis @ self.anchor_B
+
         self.jacobian = np.zeros((1, 12))
         self.jacobian[:, 0:3] = -self.normal_A
-        self.jacobian[:, 3:6] = -np.cross(self.body_A.pose.basis @ self.r_A, self.normal_A)
+        self.jacobian[:, 3:6] = np.cross(self.normal_A, r_A)
         self.jacobian[:, 6:9] = self.normal_A
-        self.jacobian[:, 9:12] = np.cross(self.body_B.pose.basis @ self.r_B, self.normal_A)
+        self.jacobian[:, 9:12] = -np.cross(self.normal_A, r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
@@ -432,7 +435,7 @@ class Scene:
 
         self.apply_gravity()
 
-        # self.contact_detection(dt)
+        self.contact_detection(dt)
         
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
