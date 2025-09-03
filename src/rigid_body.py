@@ -197,21 +197,24 @@ class DistanceConstraint:
 
 
 class PinConstraint:
-    def __init__(self, body_A: Body, body_B: Body, anchor_A: Vec3, anchor_B: Vec3):
+    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3):
         self.body_A = body_A
         self.body_B = body_B
-        self.r_A = body_A.pose.basis.transpose() @ (anchor_A - body_A.pose.origin)
-        self.r_B = body_B.pose.basis.transpose() @ (anchor_B - body_B.pose.origin)
+        self.anchor_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
+        self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
+        self.applied_impulse = np.zeros((12, 1))
     
     def setup(self, dt: float):
-        c_init = self.body_A.pose.origin + self.body_A.pose.basis @ self.r_A - \
-                 (self.body_B.pose.origin + self.body_B.pose.basis @ self.r_B)
+        r_A = self.body_A.pose.basis @ self.anchor_A
+        r_B = self.body_B.pose.basis @ self.anchor_B
+
+        c_init = self.body_A.pose.origin + r_A - (self.body_B.pose.origin + r_B)
 
         self.jacobian = np.zeros((3, 12))
         self.jacobian[:, 0:3] = np.eye(3)
-        self.jacobian[:, 3:6] = -skew_symmetric_matrix(self.body_A.pose.basis @ self.r_A)
+        self.jacobian[:, 3:6] = -skew_symmetric_matrix(r_A)
         self.jacobian[:, 6:9] = -np.eye(3)
-        self.jacobian[:, 9:12] = skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
+        self.jacobian[:, 9:12] = skew_symmetric_matrix(r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
         self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
@@ -234,6 +237,15 @@ class PinConstraint:
         erp = 0.2
         self.bias = erp / dt * c_init.reshape(3, 1)
 
+    def warm_up(self):
+        pass
+        # warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+
+        # self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
+        # self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
+        # self.body_B.delta_linear_velocity += warm_start_delta_velocity[6:9, 0].reshape(3)
+        # self.body_B.delta_angular_velocity += warm_start_delta_velocity[9:12, 0].reshape(3)
+
     def iteration(self, is_positional_iteration: bool):
         generic_delta_velocity = np.zeros((12, 1))
         generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
@@ -249,6 +261,7 @@ class PinConstraint:
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_gauss_seidel(effective_mass, rhs)
         impulse = self.jacobian.transpose() @ lamdba_
+        self.applied_impulse += impulse
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
