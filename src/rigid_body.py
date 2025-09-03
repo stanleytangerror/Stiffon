@@ -17,7 +17,7 @@ class Body:
         safe_inv_mass = lambda m: 1.0 / m if m != float('inf') else 0.0
         
         self.mass = mass
-        self.inv_mass = np.eye(3) * safe_inv_mass(mass)
+        self.inv_mass = safe_inv_mass(mass)
         self.inertia = inertia
         self.inv_inertia = np.diag(np.array([safe_inv_mass(inertia.x), safe_inv_mass(inertia.y), safe_inv_mass(inertia.z)]))  
         self.inv_inertia_world = pose.basis @ self.inv_inertia @ pose.basis.transpose()
@@ -56,9 +56,9 @@ class ContactConstraint:
         self.jacobian[:, 9:12] = np.cross(self.body_B.pose.basis @ self.r_B, self.normal_A)
 
         self.generic_inv_mass = np.zeros((12, 12))
-        self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
+        self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
         self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia
-        self.generic_inv_mass[6:9, 6:9] = self.body_B.inv_mass
+        self.generic_inv_mass[6:9, 6:9] = np.eye(3) * self.body_B.inv_mass
         self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia
 
         self.generic_velocity = np.zeros((12, 1))
@@ -68,9 +68,9 @@ class ContactConstraint:
         self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
 
         self.generic_external_impulse = np.zeros((12, 1))
-        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass * self.body_A.total_force * dt
         self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
-        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass * self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia @ self.body_B.total_torque * dt
 
         erp = 0.2
@@ -135,9 +135,9 @@ class DistanceConstraint:
         self.jacobian[0, 9:12] = n.transpose() @ skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
-        self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
+        self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
         self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia_world
-        self.generic_inv_mass[6:9, 6:9] = self.body_B.inv_mass
+        self.generic_inv_mass[6:9, 6:9] = np.eye(3) * self.body_B.inv_mass
         self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
 
         self.generic_velocity = np.zeros((12, 1))
@@ -147,9 +147,9 @@ class DistanceConstraint:
         self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
 
         self.generic_external_impulse = np.zeros((12, 1))
-        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass * self.body_A.total_force * dt
         self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
-        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass * self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
         
         # Baumgarte stabilization
@@ -209,9 +209,9 @@ class PinConstraint:
         self.jacobian[:, 9:12] = skew_symmetric_matrix(self.body_B.pose.basis @ self.r_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
-        self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
+        self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
         self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia_world
-        self.generic_inv_mass[6:9, 6:9] = self.body_B.inv_mass
+        self.generic_inv_mass[6:9, 6:9] = np.eye(3) * self.body_B.inv_mass
         self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
 
         self.generic_velocity = np.zeros((12, 1))
@@ -221,9 +221,9 @@ class PinConstraint:
         self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
 
         self.generic_external_impulse = np.zeros((12, 1))
-        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass * self.body_A.total_force * dt
         self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
-        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass * self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
 
         erp = 0.2
@@ -240,6 +240,77 @@ class PinConstraint:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
         else:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = solve_gauss_seidel(effective_mass, rhs)
+        impulse = self.jacobian.transpose() @ lamdba_
+        generic_delta_velocity += self.generic_inv_mass @ impulse
+
+        self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity = generic_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity = generic_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity = generic_delta_velocity[9:12, 0].reshape(3)
+
+class SpringConstraint:
+    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, stiffness: float, damping: float):
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
+        self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
+        self.stiffness = stiffness
+        self.damping = damping
+        self.reduced_mass = 1.0 / body_A.inv_mass if body_B.inv_mass < 1e-10 else \
+                            1.0 / body_B.inv_mass if body_A.inv_mass < 1e-10 else \
+                            1.0 / (body_A.inv_mass * body_B.inv_mass) / (1.0 / body_A.inv_mass + 1.0 / body_B.inv_mass)
+    
+    def warm_up(self):
+        pass
+
+    def setup(self, dt: float):
+        # C = x_A + r_A - x_B - r_B
+        # J = [ I, -[r_A]x, -I, [r_B]x ]
+        r_A = self.body_A.pose.basis @ self.anchor_A
+        r_B = self.body_B.pose.basis @ self.anchor_B
+
+        self.jacobian = np.zeros((3, 12))
+        self.jacobian[:, 0:3] = np.eye(3)
+        self.jacobian[:, 3:6] = -skew_symmetric_matrix(r_A)
+        self.jacobian[:, 6:9] = -np.eye(3)
+        self.jacobian[:, 9:12] = skew_symmetric_matrix(r_B)
+
+        self.generic_inv_mass = np.zeros((12, 12))
+        self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
+        self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia_world
+        self.generic_inv_mass[6:9, 6:9] = np.eye(3) * self.body_B.inv_mass
+        self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
+
+        self.generic_velocity = np.zeros((12, 1))
+        self.generic_velocity[0:3, 0] = self.body_A.linear_velocity
+        self.generic_velocity[3:6, 0] = self.body_A.angular_velocity
+        self.generic_velocity[6:9, 0] = self.body_B.linear_velocity
+        self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
+
+        # generic space motion equation:
+        #   V_new = V_init + M^{-1} J^T lambda + h M^{-1} F_ext
+        # 3d space anchors relative velocity change equation:
+        #   J V_new - (J V_init + h J M^{-1} F_ext) = h m_r^{-1} f
+        x_error = self.body_A.pose.origin + r_A - self.body_B.pose.origin - r_B
+        v_error = self.body_A.linear_velocity + np.cross(self.body_A.angular_velocity, r_A) - \
+                  self.body_B.linear_velocity - np.cross(self.body_B.angular_velocity, r_B) 
+        f = -self.stiffness * x_error - self.damping * v_error
+        self.delta_relative_velocity = (f * dt / self.reduced_mass).reshape(3, 1)
+
+    def iteration(self, is_positional_iteration: bool):
+        if is_positional_iteration:
+            pass
+
+        generic_delta_velocity = np.zeros((12, 1))
+        generic_delta_velocity[0:3, 0] = self.body_A.delta_linear_velocity
+        generic_delta_velocity[3:6, 0] = self.body_A.delta_angular_velocity
+        generic_delta_velocity[6:9, 0] = self.body_B.delta_linear_velocity
+        generic_delta_velocity[9:12, 0] = self.body_B.delta_angular_velocity
+
+        rhs = -self.jacobian @ generic_delta_velocity + self.delta_relative_velocity
 
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_gauss_seidel(effective_mass, rhs)
@@ -289,9 +360,9 @@ class HingeRotationConstraintPart:
         self.jacobian[1, 9:12] = -np.cross(a_A, t_B)
 
         self.generic_inv_mass = np.zeros((12, 12))
-        self.generic_inv_mass[0:3, 0:3] = self.body_A.inv_mass
+        self.generic_inv_mass[0:3, 0:3] = np.eye(3) * self.body_A.inv_mass
         self.generic_inv_mass[3:6, 3:6] = self.body_A.inv_inertia_world
-        self.generic_inv_mass[6:9, 6:9] = self.body_B.inv_mass
+        self.generic_inv_mass[6:9, 6:9] = np.eye(3) * self.body_B.inv_mass
         self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
 
         self.generic_velocity = np.zeros((12, 1))
@@ -301,9 +372,9 @@ class HingeRotationConstraintPart:
         self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
 
         self.generic_external_impulse = np.zeros((12, 1))
-        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass @ self.body_A.total_force * dt
+        self.generic_external_impulse[0:3, 0] = self.body_A.inv_mass * self.body_A.total_force * dt
         self.generic_external_impulse[3:6, 0] = self.body_A.inv_inertia_world @ self.body_A.total_torque * dt
-        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass @ self.body_B.total_force * dt
+        self.generic_external_impulse[6:9, 0] = self.body_B.inv_mass * self.body_B.total_force * dt
         self.generic_external_impulse[9:12, 0] = self.body_B.inv_inertia_world @ self.body_B.total_torque * dt
 
         erp = 0.2
@@ -354,6 +425,9 @@ class Scene:
         self.persistent_constraints = []
         self.position_iterations = 1
         self.velocity_iterations = 1
+
+    def set_gravity(self, f: Vec3):
+        self.gravity = f
 
     def add_body(self, body: Body):
         self.bodies.append(body)
@@ -413,6 +487,9 @@ class Scene:
     
     def add_hinge_constraint(self, body_A: Body, body_B: Body, anchor: Vec3, axis: Vec3):
         self.persistent_constraints.append(HingeConstraint(body_A, body_B, anchor, axis))
+
+    def add_spring_constraint(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, stiffness: float, damping: float):
+        self.persistent_constraints.append(SpringConstraint(body_A, body_B, point_A, point_B, stiffness, damping))
     
     def contact_detection(self, dt: float):
         for i, body in enumerate(self.bodies):
@@ -436,7 +513,7 @@ class Scene:
 
     def post_position_iteration(self, dt: float):
         for body in self.bodies:
-            new_linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass @ body.total_force * dt
+            new_linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass * body.total_force * dt
             new_angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world @ body.total_torque * dt
             
             body.pose = integrate_transform(body.pose, new_linear_velocity, new_angular_velocity, dt)
@@ -447,7 +524,7 @@ class Scene:
 
     def post_velocity_iteration(self, dt: float):
         for body in self.bodies:
-            body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass @ body.total_force * dt
+            body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass * body.total_force * dt
             body.angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world @ body.total_torque * dt
             
             body.total_force = Vec3(0, 0, 0)

@@ -223,6 +223,27 @@ def test_hinge_constraint():
             scene.step_simulation(1.0 / 60)
         renderer.render()    
 
+
+def test_spring_constraint():
+    scene = Scene()
+    scene.set_gravity(Vec3(0.0, 0.0, 0.0))
+    
+    box1 = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Box(Vec3(1.0, 1.0, 1.0)))
+    scene.add_body(box1)
+
+    box2 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(5.0, 0.0, 0.0), Mat33.identity()), geometry=Box(Vec3(1.0, 1.0, 1.0)))
+    scene.add_body(box2)
+
+    scene.add_spring_constraint(box1, box2, Vec3(1.0, 0.0, 0.0), Vec3(4.0, 0.0, 0.0), 100.0, 10.0)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    while renderer.is_running():
+        for _ in range(4):
+            scene.step_simulation(1.0 / 60)
+        renderer.render()  
+
 if __name__ == "__main__":
     # test_contact_constraint_0()
     # test_distance_constraint_chain_vertical()
