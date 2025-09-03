@@ -284,12 +284,6 @@ class SpringConstraint:
         self.generic_inv_mass[6:9, 6:9] = np.eye(3) * self.body_B.inv_mass
         self.generic_inv_mass[9:12, 9:12] = self.body_B.inv_inertia_world
 
-        self.generic_velocity = np.zeros((12, 1))
-        self.generic_velocity[0:3, 0] = self.body_A.linear_velocity
-        self.generic_velocity[3:6, 0] = self.body_A.angular_velocity
-        self.generic_velocity[6:9, 0] = self.body_B.linear_velocity
-        self.generic_velocity[9:12, 0] = self.body_B.angular_velocity
-
         # generic space motion equation:
         #   V_new = V_init + M^{-1} J^T lambda + h M^{-1} F_ext
         # 3d space anchors relative velocity change equation:
@@ -438,7 +432,7 @@ class Scene:
 
         self.apply_gravity()
 
-        self.contact_detection(dt)
+        # self.contact_detection(dt)
         
         for constraint in self.temporary_constraints:
             constraint.setup(dt)
