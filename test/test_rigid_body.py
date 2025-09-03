@@ -47,7 +47,7 @@ def test_contact_constraint_1():
 
 def test_contact_constraint_2():
     last_spawn_time = time.time()
-    count = 3
+    count = 10
     scene = Scene()
 
     scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Plane(Vec3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 1.0))))
