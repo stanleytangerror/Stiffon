@@ -44,7 +44,6 @@ class ContactConstraint:
         self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.normal_A = normal_A
         self.C = np.dot(-normal_A, point_A - point_B)
-        print(f"Constraint function: {self.C}")
         self.max_penetration = 0.01
         self.impulse_warm_start = impulse_warm_start
 
@@ -123,7 +122,7 @@ class DistanceConstraint:
         self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
         self.distance = distance
         self.position_iteration_applied_impulse = np.zeros((12, 1))
-        self.applied_impulse = np.zeros((12, 1))
+        self.applied_impulse_magnitude = 0
     
     def setup(self, dt: float):
         r_A = self.body_A.pose.basis @ self.anchor_A
@@ -162,7 +161,7 @@ class DistanceConstraint:
         self.bias = erp / dt * c_init
 
     def warm_up(self):
-        warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+        warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() * self.applied_impulse_magnitude
 
         self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
         self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
@@ -186,7 +185,7 @@ class DistanceConstraint:
         impulse = self.jacobian.transpose() @ lamdba_
 
         if not is_positional_iteration:
-            self.applied_impulse += impulse
+            self.applied_impulse_magnitude += lamdba_[0, 0]
 
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
@@ -510,7 +509,6 @@ class Scene:
                     continue
                 contact_result = intersect(Shape(body.geometry, body.pose), Shape(other_body.geometry, other_body.pose))
                 if contact_result.intersects:
-                    print(f"Contact detected between {body} and {other_body}")
                     last_impulse_for_warm_start = np.zeros((12, 1))
                     constraint = next((constraint for constraint in self.last_temporary_constraints if constraint.body_A == body and constraint.body_B == other_body), None)
                     if constraint is not None:
