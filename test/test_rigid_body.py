@@ -61,15 +61,16 @@ def test_contact_constraint_2():
 
         print(f"Frame {frame_no}")
 
-        if time.time() - last_spawn_time > 2.0 and count > 0:
+        if time.time() - last_spawn_time > 1.0 and count > 0:
             scene.add_body(Body(mass=1.0, linear_velocity=Vec3(np.random.uniform(-2.0, 2.0), 0.0, 10.0), pose=Transform(Vec3(0.0, 0.0, 3.0), Mat33.identity()), geometry=Sphere(0.5)))
             last_spawn_time = time.time()
             count -= 1
 
-        scene.step_simulation(0.01)
-        renderer.render()
+        for _ in range(4):
+            scene.step_simulation(0.01)
+            renderer.render()
 
-        frame_no += 1
+            frame_no += 1
 
 def test_contact_constraint_3():
     last_spawn_time = time.time()
@@ -182,24 +183,28 @@ def test_distance_constraint_chain_vertical():
 def test_pin_constraint_chain():
     scene = Scene()
     
-    box1 = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Box(Vec3(1.0, 1.0, 1.0)))
+    box1 = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(box1)
-
-    box2 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(5.0, 0.0, 0.0), Mat33.identity()), geometry=Box(Vec3(1.0, 1.0, 1.0)))
+    box2 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(5.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(box2)
-
-    box3 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(10.0, 0.0, 0.0), Mat33.identity()), geometry=Box(Vec3(1.0, 1.0, 1.0)))
+    box3 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(10.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
     scene.add_body(box3)
+    box4 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(15.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
+    scene.add_body(box4)
+    box5 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(20.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(0.5))
+    scene.add_body(box5)
 
     scene.add_pin_constraint(box1, box2, Vec3(2.5, 0.0, 0.0), Vec3(2.5, 0.0, 0.0))
     scene.add_pin_constraint(box2, box3, Vec3(7.5, 0.0, 0.0), Vec3(7.5, 0.0, 0.0))
+    scene.add_pin_constraint(box3, box4, Vec3(12.5, 0.0, 0.0), Vec3(12.5, 0.0, 0.0))
+    scene.add_pin_constraint(box4, box5, Vec3(17.5, 0.0, 0.0), Vec3(17.5, 0.0, 0.0))
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
-    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+    renderer.renderer.set_camera(eye=np.array([0.0, -30.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
     while renderer.is_running():
         for _ in range(4):
-            scene.step_simulation(1.0 / 240)
+            scene.step_simulation(1.0 / 60)
         renderer.render()    
 
 
@@ -245,6 +250,7 @@ def test_spring_constraint():
         renderer.render()  
 
 if __name__ == "__main__":
-    # test_contact_constraint_0()
+    # test_contact_constraint_2()
     # test_distance_constraint_chain_vertical()
-    test_distance_constraint_chain_horizontal()
+    # test_distance_constraint_chain_horizontal()
+    test_pin_constraint_chain()

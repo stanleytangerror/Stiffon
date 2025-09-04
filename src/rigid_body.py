@@ -201,7 +201,7 @@ class PinConstraint:
         self.body_B = body_B
         self.anchor_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
         self.anchor_B = body_B.pose.basis.transpose() @ (point_B - body_B.pose.origin)
-        self.applied_impulse = np.zeros((12, 1))
+        self.applied_impulse_magnitude = 0
     
     def setup(self, dt: float):
         r_A = self.body_A.pose.basis @ self.anchor_A
@@ -237,13 +237,12 @@ class PinConstraint:
         self.bias = erp / dt * c_init.reshape(3, 1)
 
     def warm_up(self):
-        pass
-        # warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+        warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() * self.applied_impulse_magnitude
 
-        # self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
-        # self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
-        # self.body_B.delta_linear_velocity += warm_start_delta_velocity[6:9, 0].reshape(3)
-        # self.body_B.delta_angular_velocity += warm_start_delta_velocity[9:12, 0].reshape(3)
+        self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
+        self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
+        self.body_B.delta_linear_velocity += warm_start_delta_velocity[6:9, 0].reshape(3)
+        self.body_B.delta_angular_velocity += warm_start_delta_velocity[9:12, 0].reshape(3)
 
     def iteration(self, is_positional_iteration: bool):
         generic_delta_velocity = np.zeros((12, 1))
@@ -260,7 +259,10 @@ class PinConstraint:
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_gauss_seidel(effective_mass, rhs)
         impulse = self.jacobian.transpose() @ lamdba_
-        self.applied_impulse += impulse
+
+        if not is_positional_iteration:
+            self.applied_impulse_magnitude += lamdba_[0, 0]
+
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
         self.body_A.delta_linear_velocity = generic_delta_velocity[0:3, 0].reshape(3)
