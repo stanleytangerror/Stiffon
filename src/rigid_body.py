@@ -37,7 +37,7 @@ class Body:
 class ContactConstraint:
     # Constraint function: C = -normal_A * (x_A + r_A - x_B - r_B) >= 0
     # Jacobian: J = [ -normal_A, normal_A x r_A, normal_A, -normal_A x r_B ]
-    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3, impulse_warm_start: np.array = np.zeros((12, 1))):
+    def __init__(self, body_A: Body, body_B: Body, point_A: Vec3, point_B: Vec3, normal_A: Vec3, impulse_magnitude_warm_start: float = 0.0):
         self.body_A = body_A
         self.body_B = body_B
         self.anchor_A = body_A.pose.basis.transpose() @ (point_A - body_A.pose.origin)
@@ -45,7 +45,7 @@ class ContactConstraint:
         self.normal_A = normal_A
         self.C = np.dot(-normal_A, point_A - point_B)
         self.max_penetration = 0.01
-        self.impulse_warm_start = impulse_warm_start
+        self.applied_impulse_magnitude = impulse_magnitude_warm_start
 
     def setup(self, dt: float):
         r_A = self.body_A.pose.basis @ self.anchor_A
@@ -79,8 +79,7 @@ class ContactConstraint:
         self.bias = erp * max(-self.max_penetration, self.C) / dt
 
     def warm_up(self):
-        self.applied_impulse = self.impulse_warm_start
-        warm_start_delta_velocity = self.generic_inv_mass @ self.applied_impulse
+        warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() * self.applied_impulse_magnitude
 
         self.body_A.delta_linear_velocity += warm_start_delta_velocity[0:3, 0].reshape(3)
         self.body_A.delta_angular_velocity += warm_start_delta_velocity[3:6, 0].reshape(3)
@@ -105,7 +104,7 @@ class ContactConstraint:
         impulse = self.jacobian.transpose() @ lamdba_
 
         if not is_positional_iteration:
-            self.applied_impulse += impulse
+            self.applied_impulse_magnitude += lamdba_[0, 0]
 
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
@@ -511,17 +510,17 @@ class Scene:
                     continue
                 contact_result = intersect(Shape(body.geometry, body.pose), Shape(other_body.geometry, other_body.pose))
                 if contact_result.intersects:
-                    last_impulse_for_warm_start = np.zeros((12, 1))
+                    last_impulse_magnitude_for_warm_start = 0.0
                     constraint = next((constraint for constraint in self.last_temporary_constraints if constraint.body_A == body and constraint.body_B == other_body), None)
                     if constraint is not None:
-                        last_impulse_for_warm_start = constraint.applied_impulse
+                        last_impulse_magnitude_for_warm_start = constraint.applied_impulse_magnitude
                     else:
                         constraint = next((constraint for constraint in self.last_temporary_constraints if constraint.body_A == other_body and constraint.body_B == body), None)
                         if constraint is not None:
-                            last_impulse_for_warm_start = -constraint.applied_impulse
+                            last_impulse_magnitude_for_warm_start = -constraint.applied_impulse_magnitude
 
-                    last_impulse_for_warm_start *= dt / self.last_delta_time
-                    self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal, last_impulse_for_warm_start))
+                    last_impulse_magnitude_for_warm_start *= dt / self.last_delta_time
+                    self.temporary_constraints.append(ContactConstraint(body, other_body, contact_result.point_A, contact_result.point_B, contact_result.normal, last_impulse_magnitude_for_warm_start))
 
     def post_position_iteration(self, dt: float):
         for body in self.bodies:
