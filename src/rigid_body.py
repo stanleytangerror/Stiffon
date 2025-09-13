@@ -309,8 +309,12 @@ class SpringConstraint:
         x_error = self.body_A.pose.origin + r_A - self.body_B.pose.origin - r_B
         v_error = self.body_A.linear_velocity + np.cross(self.body_A.angular_velocity, r_A) - \
                   self.body_B.linear_velocity - np.cross(self.body_B.angular_velocity, r_B) 
-        f = -self.stiffness * x_error - self.damping * v_error
+        fs = -self.stiffness * x_error
+        fd = -self.damping * v_error
+        f = fs + fd
         self.delta_relative_velocity = (f * dt / self.reduced_mass).reshape(3, 1)
+        self.impulse_lower_limit = np.minimum(fd * dt, np.minimum(f * dt, np.zeros(3))).reshape(3, 1)
+        self.impulse_upper_limit = np.maximum(fd * dt, np.maximum(f * dt, np.zeros(3))).reshape(3, 1)
 
     def iteration(self, is_positional_iteration: bool):
         if is_positional_iteration:
@@ -326,6 +330,12 @@ class SpringConstraint:
 
         effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
         lamdba_ = solve_gauss_seidel(effective_mass, rhs)
+
+        # the solved `lambda` is the impulse that will make the bodies behave exactly like being affected by this spring
+        # however, as a soft constraint, there can be other hard constraints or more stiff constrains break the target delta velocity
+        # so we need to clamp the impulse i.e. `lambda` to valid range
+        lamdba_ = np.minimum(np.maximum(lamdba_, self.impulse_lower_limit), self.impulse_upper_limit)
+        
         impulse = self.jacobian.transpose() @ lamdba_
         generic_delta_velocity += self.generic_inv_mass @ impulse
 
@@ -450,7 +460,7 @@ class Scene:
 
         self.apply_gravity()
 
-        self.contact_detection(dt)
+        # self.contact_detection(dt)
         
         for constraint in self.temporary_constraints:
             constraint.setup(dt)

@@ -4,6 +4,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
 
+import math
 import time
 import numpy as np
 from rigid_body import Scene, SceneDebugRenderer, Body, Vec3, Transform, Mat33, Sphere, Plane, Box
@@ -229,7 +230,7 @@ def test_hinge_constraint():
         renderer.render()    
 
 
-def test_spring_constraint():
+def test_spring_constraint_0():
     scene = Scene()
     scene.set_gravity(Vec3(0.0, 0.0, 0.0))
     
@@ -249,8 +250,37 @@ def test_spring_constraint():
             scene.step_simulation(1.0 / 60)
         renderer.render()  
 
+def test_spring_constraint_1():
+    scene = Scene()
+    scene.set_gravity(Vec3(0.0, 0.0, 0.0))
+    
+    box1 = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(box1)
+
+    box2 = Body(mass=1.0, inertia=Vec3(2.0 / 3, 2.0 / 3, 2.0 / 3), linear_velocity=Vec3(0.0, 0.0, 0.0), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(box2)
+
+    box3 = Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), pose=Transform(Vec3(0.0, 0.0, 0.0), Mat33.identity()), geometry=Sphere(1.0))
+    scene.add_body(box3)
+
+    scene.add_spring_constraint(box1, box2, Vec3(0.0, 0.0, 0.0), Vec3(0.0, 0.0, 0.0), 100.0, 10.0)
+    scene.add_spring_constraint(box2, box3, Vec3(0.0, 0.0, 0.0), Vec3(0.0, 0.0, 0.0), 100.0, 10.0)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -100.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    start_time = time.time()
+
+    while renderer.is_running():
+        for _ in range(4):
+            t = time.time() - start_time
+            box3.linear_velocity = Vec3(math.sin(t) * 10, 0.0, 0.0)
+            scene.step_simulation(1.0 / 60)
+        renderer.render() 
+
 if __name__ == "__main__":
     # test_contact_constraint_2()
     # test_distance_constraint_chain_vertical()
     # test_distance_constraint_chain_horizontal()
-    test_pin_constraint_chain()
+    # test_pin_constraint_chain()
+    test_spring_constraint_1()
