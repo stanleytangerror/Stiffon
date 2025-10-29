@@ -10,9 +10,9 @@ class Sphere:
         self.radius = radius
 
 class Plane:
-    def __init__(self, normal: Vec3, distance: float):
+    def __init__(self, point: Vec3, normal: Vec3):
+        self.point = point
         self.normal = normalized(normal)
-        self.distance = distance
 
 class Shape:
     def __init__(self, geometry: Box | Sphere | Plane, transform: Transform):
@@ -64,17 +64,19 @@ def intersect_sphere_sphere(sphere1: Sphere, transform1: Transform, sphere2: Sph
     
     return IntersectionResult(True, point_A, point_B, normal)
 
-def intersect_sphere_plane(sphere: Sphere, transform: Transform, plane: Plane):
+def intersect_sphere_plane(sphere: Sphere, sphere_transform: Transform, plane: Plane, plane_transform: Transform):
     """
     Sphere-plane intersection
     Returns intersection result with contact points and normals
     """
     # Calculate sphere center in world space
-    sphere_center = transform.origin
+    sphere_center = sphere_transform.origin
+    plane_normal = plane_transform.basis @ plane.normal
+    plane_point = plane_transform.origin
     
     # Calculate signed distance from sphere center to plane
-    # plane.normal should be unit vector, plane.distance is distance from origin
-    signed_distance = np.dot(sphere_center, plane.normal) - plane.distance
+    # plane.normal should be unit vector, plane.point is a point on the plane
+    signed_distance = np.dot(sphere_center - plane_point, plane_normal)
     
     # Check if sphere intersects with plane
     if abs(signed_distance) > sphere.radius:
@@ -84,14 +86,14 @@ def intersect_sphere_plane(sphere: Sphere, transform: Transform, plane: Plane):
     # Calculate intersection point (closest point on sphere to plane)
     if signed_distance > 0:
         # Sphere is on positive side of plane
-        intersection_point_sphere = sphere_center - sphere.radius * plane.normal
-        intersection_point_plane = sphere_center - signed_distance * plane.normal
-        normal = Vec3(-plane.normal[0], -plane.normal[1], -plane.normal[2])  # Normal pointing from plane to sphere
+        intersection_point_sphere = sphere_center - sphere.radius * plane_normal
+        intersection_point_plane = sphere_center - signed_distance * plane_normal
+        normal = Vec3(-plane_normal[0], -plane_normal[1], -plane_normal[2])  # Normal pointing from plane to sphere
     else:
         # Sphere is on negative side of plane
-        intersection_point_sphere = sphere_center + sphere.radius * plane.normal
-        intersection_point_plane = sphere_center - signed_distance * plane.normal
-        normal = Vec3(plane.normal[0], plane.normal[1], plane.normal[2])  # Normal pointing from plane to sphere
+        intersection_point_sphere = sphere_center + sphere.radius * plane_normal
+        intersection_point_plane = sphere_center - signed_distance * plane_normal
+        normal = Vec3(plane_normal[0], plane_normal[1], plane_normal[2])  # Normal pointing from plane to sphere
     
     # For sphere-plane intersection, both contact points are the same (the intersection point)
     point_A = intersection_point_sphere
@@ -103,9 +105,9 @@ def intersect(shape1: Shape, shape2: Shape):
     if isinstance(shape1.geometry, Sphere) and isinstance(shape2.geometry, Sphere):
         return intersect_sphere_sphere(shape1.geometry, shape1.transform, shape2.geometry, shape2.transform)
     elif isinstance(shape1.geometry, Sphere) and isinstance(shape2.geometry, Plane):
-        return intersect_sphere_plane(shape1.geometry, shape1.transform, shape2.geometry)
+        return intersect_sphere_plane(shape1.geometry, shape1.transform, shape2.geometry, shape2.transform)
     elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Sphere):
-        return intersect_sphere_plane(shape2.geometry, shape2.transform, shape1.geometry)
+        return intersect_sphere_plane(shape2.geometry, shape2.transform, shape1.geometry, shape1.transform)
     elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Plane):
         return IntersectionResult(False, Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0))
     else:
