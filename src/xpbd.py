@@ -37,7 +37,7 @@ class DistanceConstraint:
         j[:, 3:6] = -n
 
         alpha_tilde = self.alpha / dt / dt
-        delta_lambda = -(alpha_tilde * self.lambda_ + c) / (j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
+        delta_lambda = -(c) / (j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
         self.lambda_ += delta_lambda
 
         delta_x = self.inv_mass @ j.T * delta_lambda
@@ -49,6 +49,7 @@ class Scene:
         self.mass_points = []
         self.constraints = []
         self.gravity = Vec3(0.0, 0.0, -10.0)
+        self.constraint_iterations = 3
 
     def add_mass_point(self, p: MassPoint):
         self.mass_points.append(p)
@@ -64,11 +65,12 @@ class Scene:
         for p in self.mass_points:
             p.x_tilde = p.x + p.v * dt + dt**2 * p.inv_mass * p.f_ext
             
-        for c in self.constraints:
-            c.solve(dt)
+        for _ in range(self.constraint_iterations):
+            for c in self.constraints:
+                c.solve(dt)
         
         for p in self.mass_points:
-            p.v = (p.x_tilde - p.x) / dt
+            p.v = (p.x_tilde - p.x) / dt - dt * p.inv_mass * p.f_ext
             p.x = p.x_tilde
 
 
@@ -83,9 +85,7 @@ class SceneDebugRenderer:
     def render(self):
         self.renderer.begin_frame()
         for p in self.scene.mass_points:
-            self.draw_body(p, np.array([1.0, 0.0, 0.0]))
-        for c in self.scene.constraints:
-            self.draw_constraint(c, np.array([0.0, 1.0, 1.0]))
+            self.draw_mass_point(p, np.array([1.0, 0.0, 0.0]))
         self.renderer.end_frame()
 
     def draw_mass_point(self, p: MassPoint, color: np.ndarray):
