@@ -37,7 +37,7 @@ class DistanceConstraint:
         j[:, 3:6] = -n
 
         alpha_tilde = self.alpha / dt / dt
-        delta_lambda = -(c) / (j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
+        delta_lambda = -(alpha_tilde * self.lambda_ + c) / (j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
         self.lambda_ += delta_lambda
 
         delta_x = self.inv_mass @ j.T * delta_lambda
@@ -49,7 +49,7 @@ class Scene:
         self.mass_points = []
         self.constraints = []
         self.gravity = Vec3(0.0, 0.0, -10.0)
-        self.constraint_iterations = 3
+        self.constraint_iterations = 5
 
     def add_mass_point(self, p: MassPoint):
         self.mass_points.append(p)
@@ -108,8 +108,8 @@ if __name__ == "__main__":
     scene.add_mass_point(p4)
     scene.add_mass_point(p5)
 
-    c1 = DistanceConstraint(p1, p2, stiffness=1000.0, distance=1.0)
-    c2 = DistanceConstraint(p2, p3, stiffness=1000.0, distance=1.0)
+    c1 = DistanceConstraint(p1, p2, stiffness=float('inf'), distance=1.0)
+    c2 = DistanceConstraint(p2, p3, stiffness=float('inf'), distance=1.0)
     c3 = DistanceConstraint(p3, p4, stiffness=1000.0, distance=1.0)
     c4 = DistanceConstraint(p4, p5, stiffness=1000.0, distance=1.0)
 
@@ -121,9 +121,12 @@ if __name__ == "__main__":
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
+    frame_count = 0
     while renderer.is_running():
         scene.step_simulation(0.01)
-        renderer.render()
+        if frame_count % 10 == 0:
+            renderer.render()
+        frame_count += 1
 
     # while True:
     #     scene.step_simulation(0.01)
