@@ -100,6 +100,7 @@ class Scene:
             p.x_prev = p.x
             p.v = (p.x_predict - p.x) / dt
             p.x = p.x_predict
+            p.f_ext = Vec3(0.0, 0.0, 0.0)
 
 
 class SceneDebugRenderer:
@@ -125,30 +126,33 @@ if __name__ == "__main__":
     scene = Scene()
 
     p1 = MassPoint(inv_mass=0.0, x=Vec3(0.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p2 = MassPoint(inv_mass=1.0, x=Vec3(0.0, 0.0, -4.0), v=Vec3(0.0, 0.0, 0.0))
-    # p3 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    # p4 = MassPoint(inv_mass=1.0, x=Vec3(3.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    # p5 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p2 = MassPoint(inv_mass=1.0, x=Vec3(1.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p3 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p4 = MassPoint(inv_mass=1.0, x=Vec3(3.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p5 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
 
     scene.add_mass_point(p1)
     scene.add_mass_point(p2)
-    # scene.add_mass_point(p3)
-    # scene.add_mass_point(p4)
-    # scene.add_mass_point(p5)
+    scene.add_mass_point(p3)
+    scene.add_mass_point(p4)
+    scene.add_mass_point(p5)
 
-    c1 = DistanceConstraint(p1, p2, stiffness=1000.0, distance=2.0)
-    # c2 = DistanceConstraint(p2, p3, stiffness=float('inf'), distance=1.0)
-    # c3 = DistanceConstraint(p3, p4, stiffness=1000.0, distance=1.0)
-    # c4 = DistanceConstraint(p4, p5, stiffness=1000.0, distance=1.0)
+    c1 = DistanceConstraint(p1, p2, stiffness=1000.0, distance=1.0)
+    c2 = DistanceConstraint(p2, p3, stiffness=float('inf'), distance=1.0)
+    c3 = DistanceConstraint(p3, p4, stiffness=1000.0, distance=1.0)
+    c4 = DistanceConstraint(p4, p5, stiffness=1000.0, distance=1.0)
 
     scene.add_constraint(c1)
-    # scene.add_constraint(c2)
-    # scene.add_constraint(c3)
-    # scene.add_constraint(c4)
+    scene.add_constraint(c2)
+    scene.add_constraint(c3)
+    scene.add_constraint(c4)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
+    frame_count = 0
     while renderer.is_running():
         scene.step_simulation(0.01)
-        renderer.render()
+        if frame_count % 10 == 0:
+            renderer.render()
+        frame_count += 1
