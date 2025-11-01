@@ -18,10 +18,11 @@ class MassPoint:
         self.x_predict = Vec3(0, 0, 0)
 
 class DistanceConstraint:
-    def __init__(self, p1: MassPoint, p2: MassPoint, stiffness: float, distance: float):
+    def __init__(self, p1: MassPoint, p2: MassPoint, stiffness: float, damping: float, distance: float):
         self.p1 = p1
         self.p2 = p2
         self.alpha = 1.0 / stiffness
+        self.beta = damping
         self.distance = distance
         self.inv_mass = np.zeros((6, 6))
         self.inv_mass[0:3, 0:3] = np.eye(3) * p1.inv_mass
@@ -35,18 +36,26 @@ class DistanceConstraint:
         j[:, 0:3] = n
         j[:, 3:6] = -n
         alpha_tilde = self.alpha / dt / dt
+        beta_tilde = self.beta * dt * dt
+        gamma = alpha_tilde * beta_tilde / dt
 
-        self.inspect(alpha_tilde)
-
-        delta_lambda = -(alpha_tilde * self.lambda_ + c) / (j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
+        x_predict = np.zeros((6, 1))
+        x_predict[0:3, 0] = self.p1.x_predict
+        x_predict[3:6, 0] = self.p2.x_predict
+        x = np.zeros((6, 1))
+        x[0:3, 0] = self.p1.x
+        x[3:6, 0] = self.p2.x
+        
+        # self.inspect(alpha_tilde)
+        
+        delta_lambda = -(c + alpha_tilde * self.lambda_ + gamma * j @ (x_predict - x)) / ((gamma + 1) * j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
+        # delta_lambda = -(alpha_tilde * self.lambda_ + c) / (j @ self.inv_mass @ j.T + alpha_tilde)[0, 0]
         self.lambda_ += delta_lambda
 
         delta_x = self.inv_mass @ j.T * delta_lambda
         self.p1.x_predict += delta_x[0:3, :].reshape(3)
         self.p2.x_predict += delta_x[3:6, :].reshape(3)
-
-        self.inspect(alpha_tilde)
-
+        # self.inspect(alpha_tilde)
     def inspect(self, alpha_tilde: float):
         n = normalized(self.p1.x_predict - self.p2.x_predict)
         c = np.linalg.norm(self.p1.x_predict - self.p2.x_predict) - self.distance
@@ -124,32 +133,26 @@ class SceneDebugRenderer:
 
 if __name__ == "__main__":
     scene = Scene()
-
     p1 = MassPoint(inv_mass=0.0, x=Vec3(0.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p2 = MassPoint(inv_mass=1.0, x=Vec3(1.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p3 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p4 = MassPoint(inv_mass=1.0, x=Vec3(3.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p5 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-
+    p2 = MassPoint(inv_mass=1.0, x=Vec3(0.0, 0.0, -10.0), v=Vec3(0.0, 0.0, 0.0))
+    # p3 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    # p4 = MassPoint(inv_mass=1.0, x=Vec3(3.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    # p5 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
     scene.add_mass_point(p1)
     scene.add_mass_point(p2)
-    scene.add_mass_point(p3)
-    scene.add_mass_point(p4)
-    scene.add_mass_point(p5)
-
-    c1 = DistanceConstraint(p1, p2, stiffness=1000.0, distance=1.0)
-    c2 = DistanceConstraint(p2, p3, stiffness=float('inf'), distance=1.0)
-    c3 = DistanceConstraint(p3, p4, stiffness=1000.0, distance=1.0)
-    c4 = DistanceConstraint(p4, p5, stiffness=1000.0, distance=1.0)
-
+    # scene.add_mass_point(p3)
+    # scene.add_mass_point(p4)
+    # scene.add_mass_point(p5)
+    c1 = DistanceConstraint(p1, p2, stiffness=16.0, damping=8.0, distance=1.0)
+    # c2 = DistanceConstraint(p2, p3, stiffness=1000.0, damping=0.0, distance=1.0)
+    # c3 = DistanceConstraint(p3, p4, stiffness=1000.0, damping=0.0, distance=1.0)
+    # c4 = DistanceConstraint(p4, p5, stiffness=1000.0, damping=0.0, distance=1.0)
     scene.add_constraint(c1)
-    scene.add_constraint(c2)
-    scene.add_constraint(c3)
-    scene.add_constraint(c4)
-
+    # scene.add_constraint(c2)
+    # scene.add_constraint(c3)
+    # scene.add_constraint(c4)
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
-
     frame_count = 0
     while renderer.is_running():
         scene.step_simulation(0.01)
