@@ -82,7 +82,7 @@ class Scene:
         self.mass_points = []
         self.constraints = []
         self.gravity = Vec3(0.0, 0.0, -10.0)
-        self.constraint_iterations = 1
+        self.constraint_iterations = 10
 
     def add_mass_point(self, p: MassPoint):
         self.mass_points.append(p)
@@ -134,25 +134,30 @@ class SceneDebugRenderer:
 if __name__ == "__main__":
     scene = Scene()
     p1 = MassPoint(inv_mass=0.0, x=Vec3(0.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p2 = MassPoint(inv_mass=1.0, x=Vec3(0.0, 0.0, -10.0), v=Vec3(0.0, 0.0, 0.0))
-    # p3 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    # p4 = MassPoint(inv_mass=1.0, x=Vec3(3.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    # p5 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p2 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p3 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p4 = MassPoint(inv_mass=1.0, x=Vec3(6.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p5 = MassPoint(inv_mass=1.0, x=Vec3(8.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+
     scene.add_mass_point(p1)
     scene.add_mass_point(p2)
-    # scene.add_mass_point(p3)
-    # scene.add_mass_point(p4)
-    # scene.add_mass_point(p5)
+    scene.add_mass_point(p3)
+    scene.add_mass_point(p4)
+    scene.add_mass_point(p5)
+
     c1 = DistanceConstraint(p1, p2, stiffness=16.0, damping=8.0, distance=1.0)
-    # c2 = DistanceConstraint(p2, p3, stiffness=1000.0, damping=0.0, distance=1.0)
-    # c3 = DistanceConstraint(p3, p4, stiffness=1000.0, damping=0.0, distance=1.0)
-    # c4 = DistanceConstraint(p4, p5, stiffness=1000.0, damping=0.0, distance=1.0)
+    c2 = DistanceConstraint(p2, p3, stiffness=16.0, damping=8.0, distance=1.0)
+    c3 = DistanceConstraint(p3, p4, stiffness=16.0, damping=8.0, distance=1.0)
+    c4 = DistanceConstraint(p4, p5, stiffness=16.0, damping=8.0, distance=1.0)
+
     scene.add_constraint(c1)
-    # scene.add_constraint(c2)
-    # scene.add_constraint(c3)
-    # scene.add_constraint(c4)
+    scene.add_constraint(c2)
+    scene.add_constraint(c3)
+    scene.add_constraint(c4)
+
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
     frame_count = 0
     while renderer.is_running():
         scene.step_simulation(0.01)
