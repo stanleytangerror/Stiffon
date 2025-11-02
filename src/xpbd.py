@@ -9,8 +9,8 @@ from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation as R
 
 class MassPoint:
-    def __init__(self, inv_mass: float, x: Vec3, v: Vec3):
-        self.inv_mass = inv_mass
+    def __init__(self, mass: float, x: Vec3, v: Vec3):
+        self.inv_mass = 1.0 / mass
         self.x = x
         self.x_prev = x
         self.v = v
@@ -133,11 +133,11 @@ class SceneDebugRenderer:
 
 if __name__ == "__main__":
     scene = Scene()
-    p1 = MassPoint(inv_mass=0.0, x=Vec3(0.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p2 = MassPoint(inv_mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p3 = MassPoint(inv_mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p4 = MassPoint(inv_mass=1.0, x=Vec3(6.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
-    p5 = MassPoint(inv_mass=1.0, x=Vec3(8.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p1 = MassPoint(mass=float('inf'), x=Vec3(0.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p2 = MassPoint(mass=1.0, x=Vec3(2.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p3 = MassPoint(mass=1.0, x=Vec3(4.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p4 = MassPoint(mass=1.0, x=Vec3(6.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
+    p5 = MassPoint(mass=1.0, x=Vec3(8.0, 0.0, 0.0), v=Vec3(0.0, 0.0, 0.0))
 
     scene.add_mass_point(p1)
     scene.add_mass_point(p2)
