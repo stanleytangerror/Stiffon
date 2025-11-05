@@ -45,9 +45,6 @@ class DistanceConstraint:
         self.alpha = 1.0 / stiffness
         self.beta = damping
         self.distance = distance
-        self.inv_mass = np.zeros((6, 6))
-        self.inv_mass[0:3, 0:3] = np.eye(3) * self.b1.inv_mass
-        self.inv_mass[3:6, 3:6] = np.eye(3) * self.b2.inv_mass
         self.lambda_ = 0
 
     def solve(self, dt: float):
@@ -74,6 +71,37 @@ class DistanceConstraint:
         self.b1.q_predict = R.from_rotvec(self.b1.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.b1.q_predict
         self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.b2.q_predict
 
+class AngularConstraint:
+    def __init__(self, 
+        b1: Body, b2: Body, 
+        stiffness: float, damping: float):
+        
+        self.b1 = b1
+        self.b2 = b2
+
+        self.alpha = 1.0 / stiffness
+        self.beta = damping
+        self.lambda_ = 0
+
+    def solve(self, dt: float):
+
+        delta_q = R.from_matrix(self.b1.q_predict @ self.b2.q_predict.inv()).as_rotvec()
+
+        n = normalized(delta_q)
+        theta = np.linalg.norm(delta_q)
+
+        alpha_tilde = self.alpha / dt / dt
+
+        w1 = n.T @ self.b1.inv_inertia_world @ n
+        w2 = n.T @ self.b2.inv_inertia_world @ n
+
+        delta_lambda = -(theta + alpha_tilde * self.lambda_) / (w1 + w2 + alpha_tilde)
+        self.lambda_ += delta_lambda
+
+        p = delta_lambda * n
+
+        self.b1.q_predict = R.from_rotvec(self.b1.inv_inertia_world @ p).as_matrix() @ self.b1.q_predict
+        self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ -p).as_matrix() @ self.b2.q_predict
 
 class Scene:
     def __init__(self):
