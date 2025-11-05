@@ -13,18 +13,22 @@ class Body:
         mass: float, inertia: Vec3 = Vec3(1.0, 1.0, 1.0), 
         x: Vec3 = Vec3(0.0, 0.0, 0.0), o: R = R.identity(), 
         v: Vec3 = Vec3(0, 0, 0), w: Vec3 = Vec3(0, 0, 0)):
-
         self.inv_mass = 1.0 / mass
         self.inv_inertia = np.diag(np.array([1.0 / inertia.x, 1.0 / inertia.y, 1.0 / inertia.z]))
-        self.pose = Transform(x, o.as_matrix())
-        self.pose_prev = Transform(x, o.as_matrix())
+        self.x = x
+        self.q = o.as_matrix()
+        self.x_predict = x
+        self.q_predict = o.as_matrix()
+        self.x_prev = x
+        self.q_prev = o.as_matrix()
+        self.x_prev = x
+        self.q_prev = o.as_matrix()
         self.v = v
         self.v_predict = v
         self.w = w
         self.w_predict = w
         self.force_ext = Vec3(0, 0, 0)
         self.torque_ext = Vec3(0, 0, 0)
-        self.pose_predict = Transform(x, o.as_matrix())
         self.inv_inertia_world = self.inv_inertia
     
 class DistanceConstraint:
@@ -35,8 +39,8 @@ class DistanceConstraint:
         
         self.b1 = b1
         self.b2 = b2
-        self.anchor1 = p1 - b1.pose.origin
-        self.anchor2 = p2 - b2.pose.origin
+        self.anchor1 = p1 - b1.x
+        self.anchor2 = p2 - b2.x
 
         self.alpha = 1.0 / stiffness
         self.beta = damping
@@ -48,10 +52,10 @@ class DistanceConstraint:
 
     def solve(self, dt: float):
 
-        r1 = self.b1.pose_predict.basis @ self.anchor1
-        r2 = self.b2.pose_predict.basis @ self.anchor2
+        r1 = self.b1.q_predict @ self.anchor1
+        r2 = self.b2.q_predict @ self.anchor2
         
-        disp = self.b1.pose_predict.origin + r1 - self.b2.pose_predict.origin - r2
+        disp = self.b1.x_predict + r1 - self.b2.x_predict - r2
         n = normalized(disp)
         c = np.linalg.norm(disp) - self.distance
 
@@ -65,18 +69,18 @@ class DistanceConstraint:
 
         p = delta_lambda * n
 
-        self.b1.pose_predict.origin += p * self.b1.inv_mass
-        self.b2.pose_predict.origin += -p * self.b2.inv_mass
-        self.b1.pose_predict.basis = R.from_rotvec(self.b1.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.b1.pose_predict.basis
-        self.b2.pose_predict.basis = R.from_rotvec(self.b2.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.b2.pose_predict.basis
-        
+        self.b1.x_predict += p * self.b1.inv_mass
+        self.b2.x_predict += -p * self.b2.inv_mass
+        self.b1.q_predict = R.from_rotvec(self.b1.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.b1.q_predict
+        self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.b2.q_predict
+
 
 class Scene:
     def __init__(self):
         self.bodies = []
         self.constraints = []
         self.gravity = Vec3(0.0, 0.0, -10.0)
-        self.constraint_iterations = 1
+        self.constraint_iterations = 20
 
     def add_body(self, b: Body):
         self.bodies.append(b)
@@ -88,31 +92,30 @@ class Scene:
         for b in self.bodies:
             if b.inv_mass != 0.0:
                 b.force_ext += self.gravity / b.inv_mass
-
         for b in self.bodies:
             b.v_predict = b.v + b.inv_mass * b.force_ext * dt
-            b.pose_predict.origin = b.pose.origin + b.v_predict * dt
+            b.x_predict = b.x + b.v_predict * dt
 
             b.w_predict = b.w + b.inv_inertia_world @ (b.torque_ext - np.cross(b.w, b.inv_inertia_world @ b.w)) * dt
-            b.pose_predict.basis = R.from_rotvec(b.w_predict * dt).as_matrix() @ b.pose.basis
+            b.q_predict = R.from_rotvec(b.w_predict * dt).as_matrix() @ b.q
             
         for c in self.constraints:
             c.lambda_ = 0
-
         for _ in range(self.constraint_iterations):
             for c in self.constraints:
                 c.solve(dt)
         
         for b in self.bodies:
-            b.pose_prev = b.pose
+            b.x_prev = b.x
+            b.q_prev = b.q
             
-            b.v = (b.pose_predict.origin - b.pose.origin) / dt
-            delta_q = b.pose_predict.basis @ b.pose.basis.T
+            b.v = (b.x_predict - b.x) / dt
+            delta_q = b.q_predict @ b.q.T
             b.w = R.from_matrix(delta_q).as_rotvec() * (1.0 / dt)
 
-            b.inv_inertia_world = b.pose.basis @ b.inv_inertia @ b.pose.basis.T
-
-            b.pose = b.pose_predict
+            b.inv_inertia_world = b.q @ b.inv_inertia @ b.q.T
+            b.x = b.x_predict
+            b.q = b.q_predict
             b.force_ext = Vec3(0.0, 0.0, 0.0)
             b.torque_ext = Vec3(0.0, 0.0, 0.0)
 
@@ -132,13 +135,13 @@ class SceneDebugRenderer:
         self.renderer.end_frame()
 
     def draw_body(self, b: Body, color: np.ndarray):
-        world_matrix = create_world_matrix(translate=b.pose.origin)
-        self.renderer.draw_sphere(world_matrix, color)
+        world_matrix = create_world_matrix(translate=b.x, rotate=R.from_matrix(b.q))
+        self.renderer.draw_box(world_matrix, color)
     
 
 if __name__ == "__main__":
     scene = Scene()
-    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(0.0, 0.0, 0.0))
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0))
     b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0))
     # b3 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(4.0, 0.0, 0.0))
     # b4 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(6.0, 0.0, 0.0))
@@ -166,6 +169,6 @@ if __name__ == "__main__":
     frame_count = 0
     while renderer.is_running():
         scene.step_simulation(0.01)
-        # if frame_count % 10 == 0:
-        renderer.render()
+        if frame_count % 10 == 0:
+            renderer.render()
         frame_count += 1
