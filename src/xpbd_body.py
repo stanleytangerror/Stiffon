@@ -71,37 +71,46 @@ class DistanceConstraint:
         self.b1.q_predict = R.from_rotvec(self.b1.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.b1.q_predict
         self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.b2.q_predict
 
-class AngularConstraint:
-    def __init__(self, 
-        b1: Body, b2: Body, 
-        stiffness: float, damping: float):
-        
-        self.b1 = b1
-        self.b2 = b2
 
-        self.alpha = 1.0 / stiffness
-        self.beta = damping
+class HingeAxisConstraint:
+    def __init__(self, 
+        body_A: Body, body_B: Body, 
+        axis_A: Vec3, axis_B: Vec3):
+        
+        self.body_A = body_A
+        self.axis_A = axis_A
+        self.body_B = body_B
+        self.axis_B = axis_B
+
+        self.alpha = 0.0
         self.lambda_ = 0
 
     def solve(self, dt: float):
 
-        delta_q = R.from_matrix(self.b1.q_predict @ self.b2.q_predict.inv()).as_rotvec()
+        a_A = self.body_A.q_predict @ self.axis_A
+        a_B = self.body_B.q_predict @ self.axis_B
+        delta_q = np.cross(a_A, a_B)
 
         n = normalized(delta_q)
         theta = np.linalg.norm(delta_q)
 
+        if np.linalg.norm(delta_q) < 1e-8:
+            # almost aligned, no need to solve
+            return
+
         alpha_tilde = self.alpha / dt / dt
 
-        w1 = n.T @ self.b1.inv_inertia_world @ n
-        w2 = n.T @ self.b2.inv_inertia_world @ n
+        w1 = n.T @ self.body_A.inv_inertia_world @ n
+        w2 = n.T @ self.body_B.inv_inertia_world @ n
 
         delta_lambda = -(theta + alpha_tilde * self.lambda_) / (w1 + w2 + alpha_tilde)
         self.lambda_ += delta_lambda
 
         p = delta_lambda * n
 
-        self.b1.q_predict = R.from_rotvec(self.b1.inv_inertia_world @ p).as_matrix() @ self.b1.q_predict
-        self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ -p).as_matrix() @ self.b2.q_predict
+        self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ p).as_matrix() @ self.body_A.q_predict
+        self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ -p).as_matrix() @ self.body_B.q_predict
+
 
 class Scene:
     def __init__(self):
