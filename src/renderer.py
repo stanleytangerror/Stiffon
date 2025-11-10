@@ -50,19 +50,18 @@ class Renderer:
         # Clear objects from previous frame
         self.mesh_instances.clear()
 
-    def end_frame(self):
-        self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
-
         # Setup camera
+        self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
         self.camera.position(self.camera_eye[0], self.camera_eye[1], self.camera_eye[2])
         self.camera.lookat(self.camera_target[0], self.camera_target[1], self.camera_target[2])
         self.camera.up(self.camera_up[0], self.camera_up[1], self.camera_up[2])
         self.camera.fov(self.lens_fov)
         self.scene.set_camera(self.camera)
 
-        self.scene.ambient_light((1.0, 1.0, 1.0))
-        self.scene.point_light(pos=(0, 5, 0), color=(1, 1, 1))
+        self.scene.ambient_light((0.2, 0.2, 0.2))
+        self.scene.point_light(pos=(1, -10, 20), color=(1, 1, 1))
 
+    def end_frame(self):
         # Render all objects
         self.mesh_instances.draw(self.scene)
 
@@ -285,6 +284,7 @@ if __name__ == "__main__":
     while renderer.is_running():
         renderer.begin_frame()
 
-        renderer.draw_box(create_world_matrix(np.array([1.0, 0.0, 0.0])), color=np.array([0.0, 1.0, 1.0]))
+        renderer.draw_box(create_world_matrix(np.array([2.0, 0.0, 0.0])), color=np.array([0.0, 1.0, 1.0]))
+        renderer.draw_sphere(create_world_matrix(np.array([-2.0, 0.0, 0.0])), color=np.array([0.0, 1.0, 1.0]))
 
         renderer.end_frame()
