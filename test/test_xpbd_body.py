@@ -5,7 +5,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
 import numpy as np
 np.seterr(all='raise')
 from math_utils import Vec3
-from xpbd_body import Scene, Body, DistanceConstraint, SceneDebugRenderer, RotationalConstraint
+from xpbd_body import Scene, Body, DistanceConstraint, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle
+import math
 
 def single_distance_constraint():
     scene = Scene()
@@ -63,7 +64,7 @@ def multiple_distance_constraint():
             renderer.render()
         frame_count += 1
 
-def rotational_constraint():
+def rotational_constraint_align_axis():
     scene = Scene()
     b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0))
     b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0))
@@ -72,7 +73,7 @@ def rotational_constraint():
     scene.add_body(b2)
 
     c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
-    c2 = RotationalConstraint(b1, b2, Vec3(1.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0), 100)
+    c2 = RotationalConstraint_AlignAxis(b1, b2, Vec3(1.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0), 100)
 
     scene.add_constraint(c1)
     scene.add_constraint(c2)
@@ -84,5 +85,30 @@ def rotational_constraint():
         scene.step_simulation(0.01)
         renderer.render()
 
+
+def rotational_constraint_target_angle():
+    scene = Scene()
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0))
+    b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0))
+
+    scene.add_body(b1)
+    scene.add_body(b2)
+
+    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
+    c2 = RotationalConstraint_AlignAxis(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(0.0, 1.0, 0.0), stiffness=float('inf'))
+    c3 = RotationalConstraint_TargetAngle(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), stiffness=100, tangent_angle=math.pi / 4)
+
+    scene.add_constraint(c1)
+    scene.add_constraint(c2)
+    scene.add_constraint(c3)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    while renderer.is_running():
+        scene.step_simulation(0.01)
+        renderer.render()
+
+
 if __name__ == "__main__":
-    rotational_constraint()
+    rotational_constraint_target_angle()
