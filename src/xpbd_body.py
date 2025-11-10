@@ -72,24 +72,25 @@ class DistanceConstraint:
         self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.b2.q_predict
 
 
-class HingeAxisConstraint:
+class RotationalConstraint:
     def __init__(self, 
         body_A: Body, body_B: Body, 
-        axis_A: Vec3, axis_B: Vec3):
+        axis_A: Vec3, axis_B: Vec3,
+        stiffness: float):
         
         self.body_A = body_A
         self.axis_A = axis_A
         self.body_B = body_B
         self.axis_B = axis_B
 
-        self.alpha = 0.0
+        self.alpha = 1.0 / stiffness
         self.lambda_ = 0
 
     def solve(self, dt: float):
 
         a_A = self.body_A.q_predict @ self.axis_A
         a_B = self.body_B.q_predict @ self.axis_B
-        delta_q = np.cross(a_A, a_B)
+        delta_q = -np.cross(a_A, a_B) # a rotation will rotate a_B to a_A
 
         n = normalized(delta_q)
         theta = np.linalg.norm(delta_q)
