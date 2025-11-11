@@ -7,6 +7,7 @@ np.seterr(all='raise')
 from math_utils import Vec3
 from xpbd_body import Scene, Body, DistanceConstraint, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle, RotationalConstraint_Motor, create_rotational_motor
 import math
+from geometry import Box
 
 def single_distance_constraint():
     scene = Scene()
@@ -135,15 +136,19 @@ def rotational_constraint_motor():
 
 def rotational_motor():
     scene = Scene()
-    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0))
-    b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0))
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Box(Vec3(1.0, 0.2, 0.2)))
+    b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0), shape=Box(Vec3(1.0, 0.2, 0.2)))
+    b3 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(4.0, 0.0, 0.0), shape=Box(Vec3(1.0, 0.2, 0.2)))
 
     scene.add_body(b1)
     scene.add_body(b2)
+    scene.add_body(b3)
 
-    cs = create_rotational_motor(b1, b2, p=Vec3(1.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 10.0)
-    for c in cs:
-        scene.add_constraint(c)
+    cs1 = create_rotational_motor(b1, b2, p=Vec3(1.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 10.0)
+    scene.add_constraints(cs1)
+
+    cs2 = create_rotational_motor(b2, b3, p=Vec3(3.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=-math.pi * 20.0)
+    scene.add_constraints(cs2)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))

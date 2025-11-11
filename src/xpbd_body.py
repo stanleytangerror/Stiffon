@@ -227,8 +227,11 @@ class Scene:
     def add_body(self, b: Body):
         self.bodies.append(b)
     
-    def add_constraint(self, c: DistanceConstraint):
+    def add_constraint(self, c):
         self.constraints.append(c)
+    
+    def add_constraints(self, cs):
+        self.constraints.extend(cs)
 
     def step_simulation(self, dt: float):
         for b in self.bodies:
