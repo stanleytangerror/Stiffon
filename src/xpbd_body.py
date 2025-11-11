@@ -47,6 +47,9 @@ class DistanceConstraint:
         self.distance = distance
         self.lambda_ = 0
 
+    def pre_solve(self, dt: float):
+        self.lambda_ = 0
+
     def solve(self, dt: float):
 
         r1 = self.b1.q_predict @ self.anchor1
@@ -84,6 +87,9 @@ class RotationalConstraint_AlignAxis:
         self.axis_B = axis_B
 
         self.alpha = 1.0 / stiffness
+        self.lambda_ = 0
+
+    def pre_solve(self, dt: float):
         self.lambda_ = 0
 
     def solve(self, dt: float):
@@ -130,6 +136,58 @@ class RotationalConstraint_TargetAngle:
         self.alpha = 1.0 / stiffness
         self.lambda_ = 0
 
+    def pre_solve(self, dt: float):
+        self.lambda_ = 0
+    
+    def solve(self, dt: float):
+
+        b_A = self.body_A.q_predict @ self.tangent_A
+        b_B = R.from_rotvec(self.axis_B * self.tangent_angle).as_matrix() @ self.body_B.q_predict @ self.tangent_B
+        delta_q = -np.cross(b_A, b_B) # a rotation will rotate b_B to b_A
+
+        n = normalized(delta_q)
+        theta = np.linalg.norm(delta_q)
+
+        if np.linalg.norm(delta_q) < 1e-8:
+            # almost aligned, no need to solve
+            return
+
+        alpha_tilde = self.alpha / dt / dt
+
+        w1 = n.T @ self.body_A.inv_inertia_world @ n
+        w2 = n.T @ self.body_B.inv_inertia_world @ n
+
+        delta_lambda = -(theta + alpha_tilde * self.lambda_) / (w1 + w2 + alpha_tilde)
+        self.lambda_ += delta_lambda
+
+        p = delta_lambda * n
+
+        self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ p).as_matrix() @ self.body_A.q_predict
+        self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ -p).as_matrix() @ self.body_B.q_predict
+
+class RotationalConstraint_Motor:
+    def __init__(self, 
+        body_A: Body, body_B: Body, 
+        axis_A: Vec3, tangent_A: Vec3,
+        axis_B: Vec3, tangent_B: Vec3,
+        stiffness: float, angular_speed: float):
+        
+        self.body_A = body_A
+        self.axis_A = axis_A
+        self.tangent_A = tangent_A
+        self.body_B = body_B
+        self.axis_B = axis_B
+        self.tangent_B = tangent_B
+        self.tangent_angle = 0
+        self.angular_speed = angular_speed
+
+        self.alpha = 1.0 / stiffness
+        self.lambda_ = 0
+
+    def pre_solve(self, dt: float):
+        self.lambda_ = 0
+        self.tangent_angle += self.angular_speed * dt
+
     def solve(self, dt: float):
 
         b_A = self.body_A.q_predict @ self.tangent_A
@@ -174,6 +232,7 @@ class Scene:
         for b in self.bodies:
             if b.inv_mass != 0.0:
                 b.force_ext += self.gravity / b.inv_mass
+
         for b in self.bodies:
             b.v_predict = b.v + b.inv_mass * b.force_ext * dt
             b.x_predict = b.x + b.v_predict * dt
@@ -182,7 +241,8 @@ class Scene:
             b.q_predict = R.from_rotvec(b.w_predict * dt).as_matrix() @ b.q
             
         for c in self.constraints:
-            c.lambda_ = 0
+            c.pre_solve(dt)
+
         for _ in range(self.constraint_iterations):
             for c in self.constraints:
                 c.solve(dt)
