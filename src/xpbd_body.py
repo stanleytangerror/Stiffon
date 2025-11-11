@@ -2,7 +2,7 @@ import numpy as np
 np.seterr(all='raise')
 
 from numpy.linalg import norm
-from math_utils import Vec3, Mat33, Transform, integrate_transform, skew_symmetric_matrix, normalized, solve_jacobian, solve_gauss_seidel, create_world_matrix
+from math_utils import Vec3, generate_orthogonal_basis, normalized, create_world_matrix
 from geometry import Box, Sphere, Plane, Shape, intersect   
 from renderer import Renderer
 from scipy.optimize import lsq_linear
@@ -12,7 +12,8 @@ class Body:
     def __init__(self, 
         mass: float, inertia: Vec3 = Vec3(1.0, 1.0, 1.0), 
         x: Vec3 = Vec3(0.0, 0.0, 0.0), o: R = R.identity(), 
-        v: Vec3 = Vec3(0, 0, 0), w: Vec3 = Vec3(0, 0, 0)):
+        v: Vec3 = Vec3(0, 0, 0), w: Vec3 = Vec3(0, 0, 0),
+        shape: Box | Sphere | Plane = Box(Vec3(0.5, 0.5, 0.5))):
         self.inv_mass = 1.0 / mass
         self.inv_inertia = np.diag(np.array([1.0 / inertia.x, 1.0 / inertia.y, 1.0 / inertia.z]))
         self.x = x
@@ -30,6 +31,7 @@ class Body:
         self.force_ext = Vec3(0, 0, 0)
         self.torque_ext = Vec3(0, 0, 0)
         self.inv_inertia_world = self.inv_inertia
+        self.shape = shape
     
 class DistanceConstraint:
     def __init__(self, 
@@ -278,8 +280,30 @@ class SceneDebugRenderer:
 
     def draw_body(self, b: Body, color: np.ndarray):
         world_matrix = create_world_matrix(translate=b.x, rotate=R.from_matrix(b.q))
-        self.renderer.draw_box(world_matrix, color)
-    
+        if isinstance(b.shape, Box):
+            scale = b.shape.half_extents * 2
+            scale_matrix = np.diag(np.array([scale[0], scale[1], scale[2], 1.0]))
+            self.renderer.draw_box(world_matrix @ scale_matrix, color)
+        elif isinstance(b.shape, Sphere):
+            scale_matrix = np.diag(np.array([b.shape.radius * 2, b.shape.radius * 2, b.shape.radius * 2, 1.0]))
+            self.renderer.draw_sphere(world_matrix @ scale_matrix, color)
+        elif isinstance(b.shape, Plane):
+            self.renderer.draw_plane(world_matrix, color)
+        else:
+            raise ValueError(f"Unsupported shape: {type(b.shape)}")
+
+def create_rotational_motor(b1: Body, b2: Body, p: Vec3, axis: Vec3, angular_speed: float, stiffness: float=float('inf')):
+    c1 = DistanceConstraint(b1, b2, p, p, stiffness=float('inf'), damping=0.0, distance=0.0)
+
+    v0, v1, v2 = generate_orthogonal_basis(axis)
+    axis_A = b1.q.T @ v0
+    axis_B = b2.q.T @ v0
+    tangent_A = b1.q.T @ v1
+    tangent_B = b2.q.T @ v1
+
+    c2 = RotationalConstraint_AlignAxis(b1, b2, axis_A, axis_B, stiffness=float('inf'))
+    c3 = RotationalConstraint_Motor(b1, b2, axis_A, tangent_A, axis_B, tangent_B, stiffness=stiffness, angular_speed=angular_speed)
+    return [c1, c2, c3]
 
 if __name__ == "__main__":
     scene = Scene()

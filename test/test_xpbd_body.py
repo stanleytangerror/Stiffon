@@ -5,7 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
 import numpy as np
 np.seterr(all='raise')
 from math_utils import Vec3
-from xpbd_body import Scene, Body, DistanceConstraint, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle, RotationalConstraint_Motor
+from xpbd_body import Scene, Body, DistanceConstraint, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle, RotationalConstraint_Motor, create_rotational_motor
 import math
 
 def single_distance_constraint():
@@ -133,6 +133,24 @@ def rotational_constraint_motor():
         scene.step_simulation(0.01)
         renderer.render()
 
+def rotational_motor():
+    scene = Scene()
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0))
+    b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0))
+
+    scene.add_body(b1)
+    scene.add_body(b2)
+
+    cs = create_rotational_motor(b1, b2, p=Vec3(1.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 10.0)
+    for c in cs:
+        scene.add_constraint(c)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    while renderer.is_running():
+        scene.step_simulation(0.01)
+        renderer.render()
 
 if __name__ == "__main__":
-    rotational_constraint_motor()
+    rotational_motor()
