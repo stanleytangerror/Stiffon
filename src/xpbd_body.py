@@ -35,14 +35,14 @@ class Body:
     
 class DistanceConstraint:
     def __init__(self, 
-        b1: Body, b2: Body, 
-        p1: Vec3, p2: Vec3, 
+        body_A: Body, body_B: Body, 
+        anchor_A: Vec3, anchor_B: Vec3, 
         stiffness: float, damping: float, distance: float):
         
-        self.b1 = b1
-        self.b2 = b2
-        self.anchor1 = p1 - b1.x
-        self.anchor2 = p2 - b2.x
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = anchor_A
+        self.anchor_B = anchor_B
 
         self.alpha = 1.0 / stiffness
         self.beta = damping
@@ -54,27 +54,27 @@ class DistanceConstraint:
 
     def solve(self, dt: float):
 
-        r1 = self.b1.q_predict @ self.anchor1
-        r2 = self.b2.q_predict @ self.anchor2
+        r1 = self.body_A.q_predict @ self.anchor_A
+        r2 = self.body_B.q_predict @ self.anchor_B
         
-        disp = self.b1.x_predict + r1 - self.b2.x_predict - r2
+        disp = self.body_A.x_predict + r1 - self.body_B.x_predict - r2
         n = normalized(disp)
         c = np.linalg.norm(disp) - self.distance
 
         alpha_tilde = self.alpha / dt / dt
 
-        w1 = self.b1.inv_mass + np.cross(r1, n).T @ self.b1.inv_inertia_world @ np.cross(r1, n)
-        w2 = self.b2.inv_mass + np.cross(r2, n).T @ self.b2.inv_inertia_world @ np.cross(r2, n)
+        w1 = self.body_A.inv_mass + np.cross(r1, n).T @ self.body_A.inv_inertia_world @ np.cross(r1, n)
+        w2 = self.body_B.inv_mass + np.cross(r2, n).T @ self.body_B.inv_inertia_world @ np.cross(r2, n)
 
         delta_lambda = -(c + alpha_tilde * self.lambda_) / (w1 + w2 + alpha_tilde)
         self.lambda_ += delta_lambda
 
         p = delta_lambda * n
 
-        self.b1.x_predict += p * self.b1.inv_mass
-        self.b2.x_predict += -p * self.b2.inv_mass
-        self.b1.q_predict = R.from_rotvec(self.b1.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.b1.q_predict
-        self.b2.q_predict = R.from_rotvec(self.b2.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.b2.q_predict
+        self.body_A.x_predict += p * self.body_A.inv_mass
+        self.body_B.x_predict += -p * self.body_B.inv_mass
+        self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
+        self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
 
 
 class RotationalConstraint_AlignAxis:
@@ -295,8 +295,12 @@ class SceneDebugRenderer:
         else:
             raise ValueError(f"Unsupported shape: {type(b.shape)}")
 
+def create_distance_constraint(b1: Body, b2: Body, p1: Vec3, p2: Vec3, stiffness: float=float('inf'), damping: float=0.0, distance: float=0.0):
+    c = DistanceConstraint(b1, b2, p1 - b1.x, p2 - b2.x, stiffness=stiffness, damping=0.0, distance=0.0)
+    return c
+
 def create_rotational_motor(b1: Body, b2: Body, p: Vec3, axis: Vec3, angular_speed: float, stiffness: float=float('inf')):
-    c1 = DistanceConstraint(b1, b2, p, p, stiffness=float('inf'), damping=0.0, distance=0.0)
+    c1 = DistanceConstraint(b1, b2, p - b1.x, p - b2.x, stiffness=float('inf'), damping=0.0, distance=0.0)
 
     v0, v1, v2 = generate_orthogonal_basis(axis)
     axis_A = b1.q.T @ v0

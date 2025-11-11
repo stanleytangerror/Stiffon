@@ -5,7 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
 import numpy as np
 np.seterr(all='raise')
 from math_utils import Vec3
-from xpbd_body import Scene, Body, DistanceConstraint, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle, RotationalConstraint_Motor, create_rotational_motor
+from xpbd_body import Scene, Body, create_distance_constraint, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle, RotationalConstraint_Motor, create_rotational_motor
 import math
 from geometry import Box
 
@@ -17,7 +17,7 @@ def single_distance_constraint():
     scene.add_body(b1)
     scene.add_body(b2)
 
-    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
+    c1 = create_distance_constraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
 
     scene.add_constraint(c1)
 
@@ -45,10 +45,10 @@ def multiple_distance_constraint():
     scene.add_body(b4)
     scene.add_body(b5)
 
-    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
-    c2 = DistanceConstraint(b2, b3, Vec3(2.5, 0.0, 0.0), Vec3(3.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
-    c3 = DistanceConstraint(b3, b4, Vec3(4.5, 0.0, 0.0), Vec3(5.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
-    c4 = DistanceConstraint(b4, b5, Vec3(6.5, 0.0, 0.0), Vec3(7.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
+    c1 = create_distance_constraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
+    c2 = create_distance_constraint(b2, b3, Vec3(2.5, 0.0, 0.0), Vec3(3.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
+    c3 = create_distance_constraint(b3, b4, Vec3(4.5, 0.0, 0.0), Vec3(5.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
+    c4 = create_distance_constraint(b4, b5, Vec3(6.5, 0.0, 0.0), Vec3(7.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
 
     scene.add_constraint(c1)
     scene.add_constraint(c2)
@@ -73,7 +73,7 @@ def rotational_constraint_align_axis():
     scene.add_body(b1)
     scene.add_body(b2)
 
-    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
+    c1 = create_distance_constraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
     c2 = RotationalConstraint_AlignAxis(b1, b2, Vec3(1.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0), 100)
 
     scene.add_constraint(c1)
@@ -95,7 +95,7 @@ def rotational_constraint_target_angle():
     scene.add_body(b1)
     scene.add_body(b2)
 
-    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
+    c1 = create_distance_constraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
     c2 = RotationalConstraint_AlignAxis(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(0.0, 1.0, 0.0), stiffness=float('inf'))
     c3 = RotationalConstraint_TargetAngle(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), stiffness=100, tangent_angle=math.pi / 4)
 
@@ -119,7 +119,7 @@ def rotational_constraint_motor():
     scene.add_body(b1)
     scene.add_body(b2)
 
-    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
+    c1 = create_distance_constraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=float('inf'), damping=0.0, distance=1.0)
     c2 = RotationalConstraint_AlignAxis(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(0.0, 1.0, 0.0), stiffness=float('inf'))
     c3 = RotationalConstraint_Motor(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), stiffness=float('inf'), angular_speed=math.pi)
 
