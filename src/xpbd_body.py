@@ -33,7 +33,7 @@ class Body:
         self.inv_inertia_world = self.inv_inertia
         self.shape = shape
     
-class DistanceConstraint:
+class PositionalConstraint:
     def __init__(self, 
         body_A: Body, body_B: Body, 
         anchor_A: Vec3, anchor_B: Vec3, 
@@ -51,6 +51,51 @@ class DistanceConstraint:
 
     def pre_solve(self, dt: float):
         self.lambda_ = 0
+
+    def solve(self, dt: float):
+
+        r1 = self.body_A.q_predict @ self.anchor_A
+        r2 = self.body_B.q_predict @ self.anchor_B
+        
+        disp = self.body_A.x_predict + r1 - self.body_B.x_predict - r2
+        n = normalized(disp)
+        c = np.linalg.norm(disp) - self.distance
+
+        alpha_tilde = self.alpha / dt / dt
+
+        w1 = self.body_A.inv_mass + np.cross(r1, n).T @ self.body_A.inv_inertia_world @ np.cross(r1, n)
+        w2 = self.body_B.inv_mass + np.cross(r2, n).T @ self.body_B.inv_inertia_world @ np.cross(r2, n)
+
+        delta_lambda = -(c + alpha_tilde * self.lambda_) / (w1 + w2 + alpha_tilde)
+        self.lambda_ += delta_lambda
+
+        p = delta_lambda * n
+
+        self.body_A.x_predict += p * self.body_A.inv_mass
+        self.body_B.x_predict += -p * self.body_B.inv_mass
+        self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
+        self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
+
+class PositionalConstraint_Motor:
+    def __init__(self, 
+        body_A: Body, body_B: Body, 
+        anchor_A: Vec3, anchor_B: Vec3, 
+        stiffness: float, damping: float, speed: float):
+        
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = anchor_A
+        self.anchor_B = anchor_B
+        self.speed = speed
+
+        self.alpha = 1.0 / stiffness
+        self.beta = damping
+        self.distance = 0
+        self.lambda_ = 0
+
+    def pre_solve(self, dt: float):
+        self.lambda_ = 0
+        self.distance += self.speed * dt
 
     def solve(self, dt: float):
 
@@ -295,12 +340,16 @@ class SceneDebugRenderer:
         else:
             raise ValueError(f"Unsupported shape: {type(b.shape)}")
 
-def create_distance_constraint(b1: Body, b2: Body, p1: Vec3, p2: Vec3, stiffness: float=float('inf'), damping: float=0.0, distance: float=0.0):
-    c = DistanceConstraint(b1, b2, p1 - b1.x, p2 - b2.x, stiffness=stiffness, damping=0.0, distance=0.0)
+def create_positional_constraint(b1: Body, b2: Body, p1: Vec3, p2: Vec3, stiffness: float=float('inf'), damping: float=0.0, distance: float=0.0):
+    c = PositionalConstraint(b1, b2, p1 - b1.x, p2 - b2.x, stiffness=stiffness, damping=0.0, distance=0.0)
+    return c
+
+def create_positional_constraint_motor(b1: Body, b2: Body, p: Vec3, speed: float, stiffness: float=float('inf'), damping: float=0.0):
+    c = PositionalConstraint_Motor(b1, b2, p - b1.x, p - b2.x, stiffness=stiffness, damping=damping, speed=speed)
     return c
 
 def create_rotational_motor(b1: Body, b2: Body, p: Vec3, axis: Vec3, angular_speed: float, stiffness: float=float('inf')):
-    c1 = DistanceConstraint(b1, b2, p - b1.x, p - b2.x, stiffness=float('inf'), damping=0.0, distance=0.0)
+    c1 = PositionalConstraint(b1, b2, p - b1.x, p - b2.x, stiffness=float('inf'), damping=0.0, distance=0.0)
 
     v0, v1, v2 = generate_orthogonal_basis(axis)
     axis_A = b1.q.T @ v0
@@ -320,16 +369,13 @@ if __name__ == "__main__":
     scene.add_body(b1)
     scene.add_body(b2)
 
-    c1 = DistanceConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
+    c1 = PositionalConstraint(b1, b2, Vec3(0.5, 0.0, 0.0), Vec3(-0.5, 0.0, 0.0), stiffness=16.0, damping=8.0, distance=1.0)
 
     scene.add_constraint(c1)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
 
-    frame_count = 0
     while renderer.is_running():
         scene.step_simulation(0.01)
-        if frame_count % 10 == 0:
-            renderer.render()
-        frame_count += 1
+        renderer.render()
