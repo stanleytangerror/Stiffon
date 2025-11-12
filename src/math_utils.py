@@ -159,6 +159,12 @@ class Transform:
         result[:3, 3] = self.origin
         return Mat44(result)
 
+    def transformDirection(self, d: Vec3):
+        return self.basis @ d
+    
+    def transformPosition(self, p: Vec3):
+        return self.basis @ p + self.origin
+
 def create_world_matrix(translate=None, rotate=None, scale=None):
     matrix = np.eye(4)
     

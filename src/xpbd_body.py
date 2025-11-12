@@ -2,7 +2,7 @@ import numpy as np
 np.seterr(all='raise')
 
 from numpy.linalg import norm
-from math_utils import Vec3, generate_orthogonal_basis, normalized, create_world_matrix
+from math_utils import Vec3, generate_orthogonal_basis, normalized, create_world_matrix, Transform
 from geometry import Box, Sphere, Plane, Shape, intersect   
 from renderer import Renderer
 from scipy.optimize import lsq_linear
@@ -261,11 +261,50 @@ class RotationalConstraint_Motor:
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ p).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ -p).as_matrix() @ self.body_B.q_predict
 
+class ContactConstraint:
+    def __init__(self, 
+        body_A: Body, body_B: Body, 
+        anchor_A: Vec3, anchor_B: Vec3, normal_A: Vec3):
+
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = anchor_A
+        self.anchor_B = anchor_B
+        self.normal_A = normal_A
+        self.lambda_ = 0
+    
+    def pre_solve(self, dt: float):
+        self.lambda_ = 0
+    
+    def solve(self, dt: float):
+        n = self.body_A.q_predict @ self.normal_A
+        r1 = self.body_A.q_predict @ self.anchor_A
+        r2 = self.body_B.q_predict @ self.anchor_B
+        p1 = self.body_A.x_predict + r1
+        p2 = self.body_B.x_predict + r2
+        
+        c = (p1 - p2).T @ n
+        if c <= 0:
+            return
+
+        w1 = self.body_A.inv_mass + np.cross(r1, n).T @ self.body_A.inv_inertia_world @ np.cross(r1, n)
+        w2 = self.body_B.inv_mass + np.cross(r2, n).T @ self.body_B.inv_inertia_world @ np.cross(r2, n)
+
+        delta_lambda = -c / (w1 + w2)
+        self.lambda_ += delta_lambda
+
+        p = delta_lambda * n
+
+        self.body_A.x_predict += p * self.body_A.inv_mass
+        self.body_B.x_predict += -p * self.body_B.inv_mass
+        self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
+        self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
 
 class Scene:
     def __init__(self):
         self.bodies = []
         self.constraints = []
+        self.temporary_constraints = []
         self.gravity = Vec3(0.0, 0.0, -10.0)
         self.constraint_iterations = 20
 
@@ -289,12 +328,19 @@ class Scene:
 
             b.w_predict = b.w + b.inv_inertia_world @ (b.torque_ext - np.cross(b.w, b.inv_inertia_world @ b.w)) * dt
             b.q_predict = R.from_rotvec(b.w_predict * dt).as_matrix() @ b.q
+
+        self.contact_detection()
             
         for c in self.constraints:
             c.pre_solve(dt)
 
+        for c in self.temporary_constraints:
+            c.pre_solve(dt)
+
         for _ in range(self.constraint_iterations):
             for c in self.constraints:
+                c.solve(dt)
+            for c in self.temporary_constraints:
                 c.solve(dt)
         
         for b in self.bodies:
@@ -310,6 +356,22 @@ class Scene:
             b.q = b.q_predict
             b.force_ext = Vec3(0.0, 0.0, 0.0)
             b.torque_ext = Vec3(0.0, 0.0, 0.0)
+        
+        self.temporary_constraints = []
+    
+    def contact_detection(self):
+        for i, body in enumerate(self.bodies):
+            for j, other_body in enumerate(self.bodies):
+                if i >= j:
+                    continue
+                pose_A = Transform(body.x_predict, body.q_predict)
+                pose_B = Transform(other_body.x_predict, other_body.q_predict)
+                contact_result = intersect(Shape(body.shape, pose_A), Shape(other_body.shape, pose_B))
+                if contact_result.intersects:
+                    anchor_A = pose_A.inverse().transformPosition(contact_result.point_A)
+                    anchor_B = pose_B.inverse().transformPosition(contact_result.point_B)
+                    normal_A = pose_A.basis.T @ contact_result.normal
+                    self.temporary_constraints.append(ContactConstraint(body, other_body, anchor_A, anchor_B, normal_A))
 
 
 class SceneDebugRenderer:
@@ -351,7 +413,7 @@ def create_positional_constraint_motor(b1: Body, b2: Body, p: Vec3, speed: float
 def create_rotational_motor(b1: Body, b2: Body, p: Vec3, axis: Vec3, angular_speed: float, stiffness: float=float('inf')):
     c1 = PositionalConstraint(b1, b2, p - b1.x, p - b2.x, stiffness=float('inf'), damping=0.0, distance=0.0)
 
-    v0, v1, v2 = generate_orthogonal_basis(axis)
+    v0, v1, _ = generate_orthogonal_basis(axis)
     axis_A = b1.q.T @ v0
     axis_B = b2.q.T @ v0
     tangent_A = b1.q.T @ v1

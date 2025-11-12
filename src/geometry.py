@@ -71,8 +71,8 @@ def intersect_sphere_plane(sphere: Sphere, sphere_transform: Transform, plane: P
     """
     # Calculate sphere center in world space
     sphere_center = sphere_transform.origin
-    plane_normal = plane_transform.basis @ plane.normal
-    plane_point = plane_transform.origin
+    plane_normal = plane_transform.transformDirection(plane.normal)
+    plane_point = plane_transform.transformPosition(plane.point)
     
     # Calculate signed distance from sphere center to plane
     # plane.normal should be unit vector, plane.point is a point on the plane
@@ -107,7 +107,8 @@ def intersect(shape1: Shape, shape2: Shape):
     elif isinstance(shape1.geometry, Sphere) and isinstance(shape2.geometry, Plane):
         return intersect_sphere_plane(shape1.geometry, shape1.transform, shape2.geometry, shape2.transform)
     elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Sphere):
-        return intersect_sphere_plane(shape2.geometry, shape2.transform, shape1.geometry, shape1.transform)
+        result = intersect_sphere_plane(shape2.geometry, shape2.transform, shape1.geometry, shape1.transform)
+        return IntersectionResult(result.intersects, result.point_B, result.point_A, -result.normal)
     elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Plane):
         return IntersectionResult(False, Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0))
     else:

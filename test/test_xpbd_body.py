@@ -7,7 +7,7 @@ np.seterr(all='raise')
 from math_utils import Vec3
 from xpbd_body import Scene, Body, create_positional_constraint, create_positional_constraint_motor, SceneDebugRenderer, RotationalConstraint_AlignAxis, RotationalConstraint_TargetAngle, RotationalConstraint_Motor, create_rotational_motor
 import math
-from geometry import Box
+from geometry import Box, Plane, Sphere
 
 def single_distance_constraint():
     scene = Scene()
@@ -184,5 +184,21 @@ def positional_motor():
         renderer.render()
         frame_count += 1
 
+def test_contact_constraint():
+    scene = Scene()
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Plane(Vec3(0.0, 0.0, -3.0), Vec3(0.0, 0.0, 1.0)))
+    b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0), shape=Sphere(1.0))
+    scene.add_body(b1)
+    scene.add_body(b2)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    frame_count = 0
+    while renderer.is_running():
+        scene.step_simulation(0.01)
+        renderer.render()
+        frame_count += 1
+
 if __name__ == "__main__":
-    positional_motor()
+    test_contact_constraint()
