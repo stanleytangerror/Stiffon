@@ -13,7 +13,8 @@ class Body:
         mass: float, inertia: Vec3 = Vec3(1.0, 1.0, 1.0), 
         x: Vec3 = Vec3(0.0, 0.0, 0.0), o: R = R.identity(), 
         v: Vec3 = Vec3(0, 0, 0), w: Vec3 = Vec3(0, 0, 0),
-        shape: Box | Sphere | Plane = Box(Vec3(0.5, 0.5, 0.5))):
+        shape: Box | Sphere | Plane = Box(Vec3(0.5, 0.5, 0.5)),
+        static_friction_coefficient: float = 0.5):
         self.inv_mass = 1.0 / mass
         self.inv_inertia = np.diag(np.array([1.0 / inertia.x, 1.0 / inertia.y, 1.0 / inertia.z]))
         self.x = x
@@ -32,6 +33,7 @@ class Body:
         self.torque_ext = Vec3(0, 0, 0)
         self.inv_inertia_world = self.inv_inertia
         self.shape = shape
+        self.static_friction_coefficient = static_friction_coefficient
     
 class PositionalConstraint:
     def __init__(self, 
@@ -75,6 +77,9 @@ class PositionalConstraint:
         self.body_B.x_predict += -p * self.body_B.inv_mass
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
+
+    def solve_velocity(self, dt: float):
+        pass
 
 class PositionalConstraint_Motor:
     def __init__(self, 
@@ -121,6 +126,9 @@ class PositionalConstraint_Motor:
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
 
+    def solve_velocity(self, dt: float):
+        pass
+
 
 class RotationalConstraint_AlignAxis:
     def __init__(self, 
@@ -164,6 +172,9 @@ class RotationalConstraint_AlignAxis:
 
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ p).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ -p).as_matrix() @ self.body_B.q_predict
+
+    def solve_velocity(self, dt: float):
+        pass
 
 class RotationalConstraint_TargetAngle:
     def __init__(self, 
@@ -211,6 +222,9 @@ class RotationalConstraint_TargetAngle:
 
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ p).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ -p).as_matrix() @ self.body_B.q_predict
+
+    def solve_velocity(self, dt: float):
+        pass
 
 class RotationalConstraint_Motor:
     def __init__(self, 
@@ -261,6 +275,9 @@ class RotationalConstraint_Motor:
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ p).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ -p).as_matrix() @ self.body_B.q_predict
 
+    def solve_velocity(self, dt: float):
+        pass
+
 class ContactConstraint:
     def __init__(self, 
         body_A: Body, body_B: Body, 
@@ -271,35 +288,90 @@ class ContactConstraint:
         self.anchor_A = anchor_A
         self.anchor_B = anchor_B
         self.normal_A = normal_A
-        self.lambda_ = 0
+        self.lambda_normal = 0
+        self.lambda_tangent = 0
+        self.static_friction_coefficient = 0.5 * (self.body_A.static_friction_coefficient + self.body_B.static_friction_coefficient)
+        self.resolve_dynamic_friction = False
     
     def pre_solve(self, dt: float):
         self.lambda_ = 0
     
     def solve(self, dt: float):
+        penetration = self.solve_penetration()
+        if penetration:
+            self.solve_static_friction()
+        
+        return False
+
+    def solve_penetration(self) -> bool:
         # C = n_A^T * (x_A + r_A - x_B - r_B) <= 0
         n = self.body_A.q_predict @ self.normal_A
         r1 = self.body_A.q_predict @ self.anchor_A
         r2 = self.body_B.q_predict @ self.anchor_B
         p1 = self.body_A.x_predict + r1
         p2 = self.body_B.x_predict + r2
-        
+
         c = (p1 - p2).T @ n
         if c <= 0:
-            return
+            return False
 
+        # handle peneration
         w1 = self.body_A.inv_mass + np.cross(r1, n).T @ self.body_A.inv_inertia_world @ np.cross(r1, n)
         w2 = self.body_B.inv_mass + np.cross(r2, n).T @ self.body_B.inv_inertia_world @ np.cross(r2, n)
 
-        delta_lambda = -c / (w1 + w2)
-        self.lambda_ += delta_lambda
+        delta_lambda_normal = -c / (w1 + w2)
+        self.lambda_normal += delta_lambda_normal
 
-        p = delta_lambda * n
+        p = delta_lambda_normal * n
 
         self.body_A.x_predict += p * self.body_A.inv_mass
         self.body_B.x_predict += -p * self.body_B.inv_mass
         self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
+
+        return True
+
+    def solve_static_friction(self):
+        
+        n = self.body_A.q_predict @ self.normal_A
+        r1 = self.body_A.q_predict @ self.anchor_A
+        r2 = self.body_B.q_predict @ self.anchor_B
+        p1 = self.body_A.x_predict + r1
+        p2 = self.body_B.x_predict + r2
+        p1_prev = self.body_A.x + self.body_A.q @ self.anchor_A
+        p2_prev = self.body_B.x + self.body_B.q @ self.anchor_B
+
+        delta_p = (p1 - p1_prev) - (p2 - p2_prev)
+        delta_p_tangent = delta_p - (delta_p.T @ n) * n
+
+        if np.linalg.norm(delta_p_tangent) < 1e-8:
+            return
+
+        c = np.linalg.norm(delta_p_tangent)
+        t = normalized(delta_p_tangent)
+
+        w1 = self.body_A.inv_mass + np.cross(r1, t).T @ self.body_A.inv_inertia_world @ np.cross(r1, t)
+        w2 = self.body_B.inv_mass + np.cross(r2, t).T @ self.body_B.inv_inertia_world @ np.cross(r2, t)
+
+        delta_lambda = -c / (w1 + w2)
+
+        if (self.lambda_tangent + delta_lambda) >= self.static_friction_coefficient * self.lambda_normal:
+            # will slide, no need to solve
+            self.resolve_dynamic_friction = True
+            return
+
+        self.lambda_tangent += delta_lambda
+
+        p = delta_lambda * t
+
+        self.body_A.x_predict += p * self.body_A.inv_mass
+        self.body_B.x_predict += -p * self.body_B.inv_mass
+        self.body_A.q_predict = R.from_rotvec(self.body_A.inv_inertia_world @ np.cross(r1, p)).as_matrix() @ self.body_A.q_predict
+        self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
+
+
+    def solve_velocity(self, dt: float):
+        pass
 
 class Scene:
     def __init__(self):
@@ -307,7 +379,8 @@ class Scene:
         self.constraints = []
         self.temporary_constraints = []
         self.gravity = Vec3(0.0, 0.0, -10.0)
-        self.constraint_iterations = 20
+        self.position_iterations = 10
+        self.velocity_iterations = 3
 
     def add_body(self, b: Body):
         self.bodies.append(b)
@@ -338,7 +411,7 @@ class Scene:
         for c in self.temporary_constraints:
             c.pre_solve(dt)
 
-        for _ in range(self.constraint_iterations):
+        for _ in range(self.position_iterations):
             for c in self.constraints:
                 c.solve(dt)
             for c in self.temporary_constraints:
@@ -357,6 +430,12 @@ class Scene:
             b.q = b.q_predict
             b.force_ext = Vec3(0.0, 0.0, 0.0)
             b.torque_ext = Vec3(0.0, 0.0, 0.0)
+        
+        for _ in range(self.velocity_iterations):
+            for c in self.constraints:
+                c.solve_velocity(dt)
+            for c in self.temporary_constraints:
+                c.solve_velocity(dt)
         
         self.temporary_constraints = []
     

@@ -187,7 +187,7 @@ def positional_motor():
 
 def test_contact_constraint():
     scene = Scene()
-    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Plane(Vec3(0.0, 0.0, -3.0), Vec3(0.0, 0.0, 1.0)))
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Plane(Vec3(0.0, 0.0, -3.0), Vec3(0.1, 0.0, 1.0)))
     b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0), shape=Sphere(1.0))
     scene.add_body(b1)
     scene.add_body(b2)
@@ -229,4 +229,4 @@ def test_contact_constraint_2():
             frame_no += 1
 
 if __name__ == "__main__":
-    test_contact_constraint_2()
+    test_contact_constraint()
