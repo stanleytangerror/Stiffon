@@ -2,6 +2,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
 
+import time
 import numpy as np
 np.seterr(all='raise')
 from math_utils import Vec3
@@ -200,5 +201,32 @@ def test_contact_constraint():
         renderer.render()
         frame_count += 1
 
+def test_contact_constraint_2():
+    last_spawn_time = time.time()
+    count = 10
+    scene = Scene()
+
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), shape=Plane(Vec3(0.0, 0.0, 0.0), Vec3(1.0, 0.0, 1.0))))
+    scene.add_body(Body(mass=float('inf'), inertia=Vec3(float('inf'), float('inf'), float('inf')), shape=Plane(Vec3(0.0, 0.0, 0.0), Vec3(-1.0, 0.0, 1.0))))
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    frame_no = 0
+    while renderer.is_running():
+
+        print(f"Frame {frame_no}")
+
+        if time.time() - last_spawn_time > 1.0 and count > 0:
+            scene.add_body(Body(mass=1.0, v=Vec3(np.random.uniform(-2.0, 2.0), 0.0, 10.0), x=Vec3(0.0, 0.0, 3.0), shape=Sphere(0.5)))
+            last_spawn_time = time.time()
+            count -= 1
+
+        for _ in range(4):
+            scene.step_simulation(0.01)
+            renderer.render()
+
+            frame_no += 1
+
 if __name__ == "__main__":
-    test_contact_constraint()
+    test_contact_constraint_2()
