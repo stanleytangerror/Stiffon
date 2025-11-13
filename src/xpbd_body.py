@@ -277,6 +277,7 @@ class ContactConstraint:
         self.lambda_ = 0
     
     def solve(self, dt: float):
+        # C = n_A^T * (x_A + r_A - x_B - r_B) <= 0
         n = self.body_A.q_predict @ self.normal_A
         r1 = self.body_A.q_predict @ self.anchor_A
         r2 = self.body_B.q_predict @ self.anchor_B
