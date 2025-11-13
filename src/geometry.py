@@ -112,4 +112,4 @@ def intersect(shape1: Shape, shape2: Shape):
     elif isinstance(shape1.geometry, Plane) and isinstance(shape2.geometry, Plane):
         return IntersectionResult(False, Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0))
     else:
-        raise NotImplementedError(f"Intersection between {type(shape1.geometry)} and {type(shape2.geometry)} not implemented")
+        return IntersectionResult(False, Vec3(0, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0))
