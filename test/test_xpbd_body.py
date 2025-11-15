@@ -274,4 +274,4 @@ def test_2_wheels():
 
 
 if __name__ == "__main__":
-    test_2_wheels()
+    test_rolling()

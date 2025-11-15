@@ -306,7 +306,7 @@ class ContactConstraint:
 
     def solve_velocity(self, dt: float):
         if self.resolve_dynamic_friction:
-            self.solve_dynamic_friction()
+            self.solve_dynamic_friction(dt)
 
     def solve_penetration(self):
         # C = n_A^T * (x_A + r_A - x_B - r_B) <= 0
@@ -376,7 +376,7 @@ class ContactConstraint:
         self.body_B.q_predict = R.from_rotvec(self.body_B.inv_inertia_world @ np.cross(r2, -p)).as_matrix() @ self.body_B.q_predict
 
 
-    def solve_dynamic_friction(self):
+    def solve_dynamic_friction(self, dt: float):
         
         n = self.body_A.q_predict @ self.normal_A
         r1 = self.body_A.q_predict @ self.anchor_A
