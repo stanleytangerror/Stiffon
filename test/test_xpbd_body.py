@@ -228,10 +228,28 @@ def test_contact_constraint_2():
 
             frame_no += 1
 
+def test_rolling():
+    scene = Scene()
+    b1 = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Plane(Vec3(0.0, 0.0, -4.0), Vec3(0.0, 0.0, 1.0)))
+    b2 = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(0.0, 0.0, 0.0), shape=Sphere(0.5))
+
+    scene.add_body(b1)
+    scene.add_body(b2)
+
+    c = RotationalConstraint_Motor(b1, b2, Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec3(1.0, 0.0, 0.0), stiffness=float('inf'), angular_speed=math.pi * 30.0)
+    scene.add_constraint(c)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    while renderer.is_running():
+        scene.step_simulation(0.01)
+        renderer.render()
+
 
 def test_2_wheels():
     scene = Scene()
-    ground = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Plane(Vec3(0.0, 0.0, -4.0), Vec3(0.0, 0.0, 1.0)))
+    ground = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=Vec3(0.0, 0.0, 0.0), shape=Plane(Vec3(0.0, 0.0, -3.0), Vec3(0.0, 0.0, 1.0)))
     body = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(0.0, 0.0, 2.0), shape=Box(Vec3(4.0, 0.2, 0.2)))
     left_wheel = Body(mass=1.0, inertia=Vec3(0.01, 0.01, 0.01), x=Vec3(-2.0, 0.0, 0.0), shape=Sphere(0.5))
     right_wheel = Body(mass=1.0, inertia=Vec3(0.01, 0.01, 0.01), x=Vec3(2.0, 0.0, 0.0), shape=Sphere(0.5))
@@ -241,10 +259,10 @@ def test_2_wheels():
     scene.add_body(left_wheel)
     scene.add_body(right_wheel)
 
-    cs1 = create_rotational_motor(body, left_wheel, p=Vec3(-2.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 10.0)
+    cs1 = create_rotational_motor(body, left_wheel, p=Vec3(-2.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 30.0)
     scene.add_constraints(cs1)
 
-    cs2 = create_rotational_motor(body, right_wheel, p=Vec3(2.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 10.0)
+    cs2 = create_rotational_motor(body, right_wheel, p=Vec3(2.0, 0.0, 0.0), axis=Vec3(0.0, 1.0, 0.0), angular_speed=math.pi * 30.0)
     scene.add_constraints(cs2)
 
     renderer = SceneDebugRenderer(scene, width=800, height=600)

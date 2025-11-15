@@ -8,6 +8,12 @@ def normalized(v):
     else:
         return v
 
+def decompose_to_n_and_t(v, n):
+    assert np.linalg.norm(n) - 1.0 < 1e-6
+    
+    v_d = np.dot(n, v) * n
+    return v_d, v - v_d
+
 class Vec3(np.ndarray):
     """3D vector class as an alias to numpy array with shape (3,)"""
     def __new__(cls, x=0.0, y=0.0, z=0.0):
