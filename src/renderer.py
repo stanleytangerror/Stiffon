@@ -20,8 +20,6 @@ class Renderer:
         self.camera_controller = CameraController()
         self.camera = ti.ui.Camera()
 
-        self.lens_fov = 90
-
         self.last_begin_frame_time = time.time()
 
         # Store objects to render
@@ -35,8 +33,14 @@ class Renderer:
         self.camera_controller.camera_target = target
         self.camera_controller.camera_up = up
 
+    def set_on_selection_callback(self, on_selection_callback):
+        self.camera_controller.on_selection_callback = on_selection_callback
+
+    def set_on_unselection_callback(self, on_unselection_callback):
+        self.camera_controller.on_unselection_callback = on_unselection_callback
+
     def set_fov(self, fov):
-        self.lens_fov = fov
+        self.camera_controller.lens_fov = fov
 
     def draw_box(self, world_mat, color):
         self.mesh_instances.add_box(world_mat, color)
@@ -50,6 +54,7 @@ class Renderer:
     def begin_frame(self):
         self.delta_time = time.time() - self.last_begin_frame_time
         self.last_begin_frame_time = time.time()
+        
         actions = []
         if self.window.is_pressed(ti.ui.LEFT, 'w'):
             actions.append(CameraAction.MOVE_FORWARD)
@@ -68,7 +73,14 @@ class Renderer:
         if self.window.is_pressed('f'):
             actions.append(CameraAction.MOVE_DOWN)
 
-        self.camera_controller.update(self.delta_time, actions)
+        for e in self.window.get_events(tag=ti.ui.PRESS):
+            if e.key == ti.ui.LMB:
+                actions.append(CameraAction.SELECT)
+        for e in self.window.get_events(tag=ti.ui.RELEASE):
+            if e.key == ti.ui.LMB:
+                actions.append(CameraAction.UNSELECT)
+
+        self.camera_controller.update(self.delta_time, self.window.get_window_shape(), actions)
 
         # Clear objects from previous frame
         self.mesh_instances.clear()
@@ -77,10 +89,11 @@ class Renderer:
         camera_eye = self.camera_controller.camera_eye
         camera_target = self.camera_controller.camera_target
         camera_up = self.camera_controller.camera_up
+        lens_fov = self.camera_controller.lens_fov
         self.camera.position(camera_eye[0], camera_eye[1], camera_eye[2])
         self.camera.lookat(camera_target[0], camera_target[1], camera_target[2])
         self.camera.up(camera_up[0], camera_up[1], camera_up[2])
-        self.camera.fov(self.lens_fov)
+        self.camera.fov(lens_fov)
         self.scene.set_camera(self.camera)
 
         self.scene.ambient_light((0.2, 0.2, 0.2))
@@ -93,9 +106,9 @@ class Renderer:
         # Draw scene
         self.canvas.scene(self.scene)
         self.window.show()
-
-    def LMB_pressed(self, pos):
-        pass
+    
+    def get_mouse_ray(self):
+        return self.camera_controller.get_mouse_ray(self.window.get_cursor_pos(), self.window.get_window_shape())
 
 
 @ti.data_oriented
@@ -310,6 +323,13 @@ class CameraAction(Enum):
     MOVE_DOWN = 5
     ROTATE_LEFT = 6
     ROTATE_RIGHT = 7
+    SELECT = 8
+    UNSELECT = 9
+
+class Ray:
+    def __init__(self, origin: np.ndarray, direction: np.ndarray):
+        self.origin = origin
+        self.direction = direction
 
 class CameraController:
     def __init__(self, 
@@ -317,15 +337,21 @@ class CameraController:
         camera_target=np.array([0.0, 0.0, 0.0]), 
         camera_up=np.array([0.0, 0.0, 1.0]), 
         camera_moving_speed=5.0,
-        camera_rotating_speed=40.0):
+        camera_rotating_speed=40.0,
+        lens_fov=90.0,
+        on_selection_callback=None,
+        on_unselection_callback=None):
 
         self.camera_eye = camera_eye
         self.camera_target = camera_target
         self.camera_up = camera_up
         self.camera_moving_speed = camera_moving_speed
         self.camera_rotating_speed = camera_rotating_speed
+        self.lens_fov = lens_fov
+        self.on_selection_callback = on_selection_callback
+        self.on_unselection_callback = on_unselection_callback
 
-    def update(self, delta_time, actions):
+    def update(self, delta_time, window_size, actions):
         moving_distance = delta_time * self.camera_moving_speed
         rotating_angle = delta_time * self.camera_rotating_speed
         camera_front = normalized(self.camera_target - self.camera_eye)
@@ -358,7 +384,22 @@ class CameraController:
                 r = self.camera_target - self.camera_eye
                 new_r = R.from_rotvec(math.radians(-rotating_angle) * self.camera_up).as_matrix() @ r
                 self.camera_target = self.camera_eye + new_r
+            elif action == CameraAction.SELECT:
+                if self.on_selection_callback:
+                    self.on_selection_callback()
+            elif action == CameraAction.UNSELECT:
+                if self.on_unselection_callback:
+                    self.on_unselection_callback()
 
+    def get_mouse_ray(self, uv, window_size) -> Ray:
+        start = self.camera_eye
+        # TODO why 1.275?
+        bias = (np.array(uv) - 0.5) * math.radians(self.lens_fov) * np.array([window_size[0] / window_size[1], 1.0]) * 1.275
+        camera_front = normalized(self.camera_target - self.camera_eye)
+        camera_right = normalized(np.cross(camera_front, self.camera_up))
+        camera_up = normalized(np.cross(camera_right, camera_front))
+        direction = normalized(camera_front + bias[0] * camera_right + bias[1] * camera_up)
+        return Ray(start, direction)
 
 if __name__ == "__main__":
     program_start_time = time.time()
@@ -367,10 +408,18 @@ if __name__ == "__main__":
     renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
     renderer.set_fov(fov=90)
 
+    renderer.set_on_selection_callback(lambda: print(f"Selected"))
+    renderer.set_on_unselection_callback(lambda: print("Unselected"))
+
+    centers = ti.Vector.field(3, dtype=ti.f32, shape=1)
+
     while renderer.is_running():
         renderer.begin_frame()
 
         renderer.draw_box(create_world_matrix(np.array([2.0, 0.0, 0.0])), color=np.array([0.0, 1.0, 1.0]))
         renderer.draw_sphere(create_world_matrix(np.array([-2.0, 0.0, 0.0])), color=np.array([0.0, 1.0, 1.0]))
+
+        ray = renderer.get_mouse_ray()
+        renderer.draw_sphere(create_world_matrix(translate=ray.origin + 10 * ray.direction, scale=np.array([0.1, 0.1, 0.1])), color=np.array([0.0, 1.0, 1.0]))
 
         renderer.end_frame()
