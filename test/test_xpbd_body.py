@@ -272,6 +272,45 @@ def test_2_wheels():
         scene.step_simulation(0.01)
         renderer.render()
 
+def test_mouse_selection():
+    scene = Scene()
+
+    b = Body(mass=1.0, inertia=Vec3(1.0, 1.0, 1.0), x=Vec3(2.0, 0.0, 0.0))
+    scene.add_body(b)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, -10.0, 0.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 0.0, 1.0]))
+
+    mouse_body = None
+    mouse_constraint = None
+    
+    def on_selection():
+        nonlocal mouse_body, mouse_constraint
+
+        ray = renderer.renderer.get_mouse_ray()
+        body_pos = ray.origin + 10 * ray.direction
+        mouse_body = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=body_pos)
+        scene.add_body(mouse_body)
+        mouse_constraint = create_positional_constraint(b, mouse_body, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=64.0, damping=16.0, distance=1.0)
+        scene.add_constraint(mouse_constraint)
+
+    def on_unselection():
+        nonlocal mouse_body, mouse_constraint
+        scene.remove_constraint(mouse_constraint)
+        scene.remove_body(mouse_body)
+
+    renderer.renderer.set_on_selection_callback(on_selection)
+    renderer.renderer.set_on_unselection_callback(on_unselection)
+
+    while renderer.is_running():
+
+        if mouse_body is not None:
+            ray = renderer.renderer.get_mouse_ray()
+            mouse_body.x = ray.origin + 10 * ray.direction
+
+        scene.step_simulation(0.01)
+        renderer.render()
+
 
 if __name__ == "__main__":
-    test_rolling()
+    test_mouse_selection()

@@ -418,6 +418,12 @@ class Scene:
     def add_constraints(self, cs):
         self.constraints.extend(cs)
 
+    def remove_body(self, b: Body):
+        self.bodies.remove(b)
+    
+    def remove_constraint(self, c):
+        self.constraints.remove(c)
+
     def step_simulation(self, dt: float):
         for b in self.bodies:
             if b.inv_mass != 0.0:
