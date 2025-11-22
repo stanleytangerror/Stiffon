@@ -1,8 +1,10 @@
 import taichi as ti
 import numpy as np
+import math
 from scipy.spatial.transform.rotation import Rotation as R
 import time
 from math_utils import normalized, create_world_matrix
+from enum import Enum
 
 class Renderer:
     def __init__(self, width, height):
@@ -15,13 +17,12 @@ class Renderer:
         self.canvas = self.window.get_canvas()
         self.scene = self.window.get_scene()
 
+        self.camera_controller = CameraController()
         self.camera = ti.ui.Camera()
 
-        # camera initialization
-        self.camera_eye = np.array([0.0, -10.0, 0.0])
-        self.camera_target = np.array([0.0, 0.0, 0.0])
-        self.camera_up = np.array([0.0, 0.0, 1.0])
         self.lens_fov = 90
+
+        self.last_begin_frame_time = time.time()
 
         # Store objects to render
         self.mesh_instances = MeshInstances()
@@ -30,9 +31,9 @@ class Renderer:
         return self.window.running
 
     def set_camera(self, eye, target, up):
-        self.camera_eye = eye
-        self.camera_target = target
-        self.camera_up = up
+        self.camera_controller.camera_eye = eye
+        self.camera_controller.camera_target = target
+        self.camera_controller.camera_up = up
 
     def set_fov(self, fov):
         self.lens_fov = fov
@@ -47,14 +48,38 @@ class Renderer:
         self.mesh_instances.add_plane(world_mat, color)
 
     def begin_frame(self):
+        self.delta_time = time.time() - self.last_begin_frame_time
+        self.last_begin_frame_time = time.time()
+        actions = []
+        if self.window.is_pressed(ti.ui.LEFT, 'w'):
+            actions.append(CameraAction.MOVE_FORWARD)
+        if self.window.is_pressed(ti.ui.RIGHT, 's'):
+            actions.append(CameraAction.MOVE_BACKWARD)
+        if self.window.is_pressed(ti.ui.LEFT, 'a'):
+            actions.append(CameraAction.MOVE_LEFT)
+        if self.window.is_pressed(ti.ui.RIGHT, 'd'):
+            actions.append(CameraAction.MOVE_RIGHT)
+        if self.window.is_pressed('q'):
+            actions.append(CameraAction.ROTATE_LEFT)
+        if self.window.is_pressed('e'):
+            actions.append(CameraAction.ROTATE_RIGHT)
+        if self.window.is_pressed('r'):
+            actions.append(CameraAction.MOVE_UP)
+        if self.window.is_pressed('f'):
+            actions.append(CameraAction.MOVE_DOWN)
+
+        self.camera_controller.update(self.delta_time, actions)
+
         # Clear objects from previous frame
         self.mesh_instances.clear()
 
         # Setup camera
-        self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
-        self.camera.position(self.camera_eye[0], self.camera_eye[1], self.camera_eye[2])
-        self.camera.lookat(self.camera_target[0], self.camera_target[1], self.camera_target[2])
-        self.camera.up(self.camera_up[0], self.camera_up[1], self.camera_up[2])
+        camera_eye = self.camera_controller.camera_eye
+        camera_target = self.camera_controller.camera_target
+        camera_up = self.camera_controller.camera_up
+        self.camera.position(camera_eye[0], camera_eye[1], camera_eye[2])
+        self.camera.lookat(camera_target[0], camera_target[1], camera_target[2])
+        self.camera.up(camera_up[0], camera_up[1], camera_up[2])
         self.camera.fov(self.lens_fov)
         self.scene.set_camera(self.camera)
 
@@ -68,6 +93,9 @@ class Renderer:
         # Draw scene
         self.canvas.scene(self.scene)
         self.window.show()
+
+    def LMB_pressed(self, pos):
+        pass
 
 
 @ti.data_oriented
@@ -272,6 +300,64 @@ class MeshInstances:
             instance_count=self.plane_count,
             two_sided=True,
             )
+
+class CameraAction(Enum):
+    MOVE_FORWARD = 0
+    MOVE_BACKWARD = 1
+    MOVE_LEFT = 2
+    MOVE_RIGHT = 3
+    MOVE_UP = 4
+    MOVE_DOWN = 5
+    ROTATE_LEFT = 6
+    ROTATE_RIGHT = 7
+
+class CameraController:
+    def __init__(self, 
+        camera_eye=np.array([0.0, -10.0, 0.0]), 
+        camera_target=np.array([0.0, 0.0, 0.0]), 
+        camera_up=np.array([0.0, 0.0, 1.0]), 
+        camera_moving_speed=5.0,
+        camera_rotating_speed=40.0):
+
+        self.camera_eye = camera_eye
+        self.camera_target = camera_target
+        self.camera_up = camera_up
+        self.camera_moving_speed = camera_moving_speed
+        self.camera_rotating_speed = camera_rotating_speed
+
+    def update(self, delta_time, actions):
+        moving_distance = delta_time * self.camera_moving_speed
+        rotating_angle = delta_time * self.camera_rotating_speed
+        camera_front = normalized(self.camera_target - self.camera_eye)
+        camera_right = normalized(np.cross(self.camera_target - self.camera_eye, self.camera_up))
+        
+        for action in actions:
+            if action == CameraAction.MOVE_LEFT:
+                self.camera_eye -= moving_distance * camera_right
+                self.camera_target -= moving_distance * camera_right
+            elif action == CameraAction.MOVE_RIGHT:
+                self.camera_eye += moving_distance * camera_right
+                self.camera_target += moving_distance * camera_right
+            elif action == CameraAction.MOVE_FORWARD:
+                self.camera_eye += moving_distance * camera_front
+                self.camera_target += moving_distance * camera_front
+            elif action == CameraAction.MOVE_BACKWARD:
+                self.camera_eye -= moving_distance * camera_front
+                self.camera_target -= moving_distance * camera_front
+            elif action == CameraAction.MOVE_UP:
+                self.camera_eye += moving_distance * self.camera_up
+                self.camera_target += moving_distance * self.camera_up
+            elif action == CameraAction.MOVE_DOWN:
+                self.camera_eye -= moving_distance * self.camera_up
+                self.camera_target -= moving_distance * self.camera_up
+            elif action == CameraAction.ROTATE_LEFT:
+                r = self.camera_target - self.camera_eye
+                new_r = R.from_rotvec(math.radians(rotating_angle) * self.camera_up).as_matrix() @ r
+                self.camera_target = self.camera_eye + new_r
+            elif action == CameraAction.ROTATE_RIGHT:
+                r = self.camera_target - self.camera_eye
+                new_r = R.from_rotvec(math.radians(-rotating_angle) * self.camera_up).as_matrix() @ r
+                self.camera_target = self.camera_eye + new_r
 
 
 if __name__ == "__main__":
