@@ -3,7 +3,7 @@ np.seterr(all='raise')
 
 from numpy.linalg import norm
 from math_utils import Vec3, generate_orthogonal_basis, normalized, create_world_matrix, Transform, decompose_to_n_and_t
-from geometry import Box, Sphere, Plane, Shape, intersect   
+from geometry import Box, Sphere, Plane, Shape, intersect, raycast, RaycastResult   
 from renderer import Renderer
 from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation as R
@@ -485,6 +485,18 @@ class Scene:
                     anchor_B = pose_B.inverse().transformPosition(contact_result.point_B)
                     normal_A = pose_A.basis.T @ contact_result.normal
                     self.temporary_constraints.append(ContactConstraint(body, other_body, anchor_A, anchor_B, normal_A))
+
+    def raycast(self, origin: Vec3, dir: Vec3) -> RaycastResult:
+        hit_result = RaycastResult(hits=False, point=Vec3(0, 0, 0), normal=Vec3(0, 0, 1.0))
+        hit_distance = float('inf')
+        for body in self.bodies:
+            pose = Transform(body.x_predict, body.q_predict)
+            result = raycast(origin, dir, Shape(body.shape, pose))
+            if result.hits:
+                dist = np.linalg.norm(result.point - origin)
+                if dist < hit_distance:
+                    hit_result = result
+        return hit_result
 
 
 class SceneDebugRenderer:

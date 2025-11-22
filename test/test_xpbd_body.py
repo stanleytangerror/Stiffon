@@ -288,16 +288,21 @@ def test_mouse_selection():
         nonlocal mouse_body, mouse_constraint
 
         ray = renderer.renderer.get_mouse_ray()
-        body_pos = ray.origin + 10 * ray.direction
-        mouse_body = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=body_pos)
-        scene.add_body(mouse_body)
-        mouse_constraint = create_positional_constraint(b, mouse_body, Vec3(0.5, 0.0, 0.0), Vec3(1.5, 0.0, 0.0), stiffness=64.0, damping=16.0, distance=1.0)
-        scene.add_constraint(mouse_constraint)
+        hit_result = scene.raycast(ray.origin, ray.direction)
+        if hit_result.hits:
+            body_pos = hit_result.point
+            mouse_body = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=body_pos, shape=Sphere(0.1))
+            scene.add_body(mouse_body)
+            mouse_constraint = create_positional_constraint(b, mouse_body, hit_result.point, hit_result.point, stiffness=1600.0, damping=80.0, distance=0.0)
+            scene.add_constraint(mouse_constraint)
 
     def on_unselection():
         nonlocal mouse_body, mouse_constraint
-        scene.remove_constraint(mouse_constraint)
-        scene.remove_body(mouse_body)
+        if mouse_constraint is not None and mouse_body is not None:
+            scene.remove_constraint(mouse_constraint)
+            scene.remove_body(mouse_body)
+            mouse_body = None
+            mouse_constraint = None
 
     renderer.renderer.set_on_selection_callback(on_selection)
     renderer.renderer.set_on_unselection_callback(on_unselection)
