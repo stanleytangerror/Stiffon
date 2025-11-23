@@ -2,7 +2,7 @@ import numpy as np
 np.seterr(all='raise')
 
 from numpy.linalg import norm
-from math_utils import Vec3, generate_orthogonal_basis, normalized, create_world_matrix, Transform, decompose_to_n_and_t
+from math_utils import Vec3, generate_orthogonal_basis, normalized, create_world_matrix, Transform, decompose_to_n_and_t, calculate_stiffness_damping
 from geometry import Box, Sphere, Plane, Shape, intersect, raycast, RaycastResult   
 from renderer import Renderer
 from scipy.optimize import lsq_linear
@@ -32,6 +32,9 @@ class Body:
         self.shape = shape
         self.static_friction_coefficient = static_friction_coefficient
         self.dynamic_friction_coefficient = dynamic_friction_coefficient
+
+    def is_kinematic(self):
+        return self.inv_mass <= 1e-2 or self.inv_inertia.any() <= 1e-2
     
 class PositionalConstraint:
     def __init__(self, 
@@ -486,9 +489,10 @@ class Scene:
                     normal_A = pose_A.basis.T @ contact_result.normal
                     self.temporary_constraints.append(ContactConstraint(body, other_body, anchor_A, anchor_B, normal_A))
 
-    def raycast(self, origin: Vec3, dir: Vec3) -> RaycastResult:
+    def raycast(self, origin: Vec3, dir: Vec3) -> (RaycastResult, Body):
         hit_result = RaycastResult(hits=False, point=Vec3(0, 0, 0), normal=Vec3(0, 0, 1.0))
         hit_distance = float('inf')
+        hit_body = None
         for body in self.bodies:
             pose = Transform(body.x_predict, body.q_predict)
             result = raycast(origin, dir, Shape(body.shape, pose))
@@ -496,18 +500,29 @@ class Scene:
                 dist = np.linalg.norm(result.point - origin)
                 if dist < hit_distance:
                     hit_result = result
-        return hit_result
+                    hit_body = body
+        return hit_result, hit_body
 
 
 class SceneDebugRenderer:
     def __init__(self, scene: Scene, width: int, height: int):
         self.scene = scene
         self.renderer = Renderer(width=width, height=height)
+        self.mouse_body = None
+        self.mouse_constraint = None
+        self.mouse_distance = 0.0
+
+        self.renderer.set_on_selection_callback(self.on_selection)
+        self.renderer.set_on_unselection_callback(self.on_unselection)
 
     def is_running(self):
         return self.renderer.is_running()
 
     def render(self):
+        if self.mouse_body is not None:
+            ray = self.renderer.get_mouse_ray()
+            self.mouse_body.x = ray.origin + self.mouse_distance * ray.direction
+
         self.renderer.begin_frame()
         for b in self.scene.bodies:
             self.draw_body(b, np.array([1.0, 0.0, 0.0]))
@@ -526,6 +541,29 @@ class SceneDebugRenderer:
             self.renderer.draw_plane(world_matrix, color)
         else:
             raise ValueError(f"Unsupported shape: {type(b.shape)}")
+
+    def on_selection(self):
+        ray = self.renderer.get_mouse_ray()
+        hit_result, hit_body = self.scene.raycast(ray.origin, ray.direction)
+        if hit_result.hits and not hit_body.is_kinematic():
+            body_pos = hit_result.point
+
+            self.mouse_body = Body(mass=float('inf'), inertia=Vec3(1.0, 1.0, 1.0) * float('inf'), x=body_pos, shape=Sphere(0.1))
+            self.scene.add_body(self.mouse_body)
+
+            stiffness, damping = calculate_stiffness_damping(1.0 / hit_body.inv_mass, 100.0, 1.0)
+            self.mouse_constraint = create_positional_constraint(hit_body, self.mouse_body, hit_result.point, hit_result.point, stiffness=stiffness, damping=damping, distance=0.0)
+            self.scene.add_constraint(self.mouse_constraint)
+            self.mouse_distance = np.linalg.norm(hit_result.point - ray.origin)
+
+    def on_unselection(self):
+        if self.mouse_constraint is not None and self.mouse_body is not None:
+            self.scene.remove_constraint(self.mouse_constraint)
+            self.scene.remove_body(self.mouse_body)
+            self.mouse_body = None
+            self.mouse_constraint = None
+            self.mouse_distance = 0.0
+
 
 def create_positional_constraint(b1: Body, b2: Body, p1: Vec3, p2: Vec3, stiffness: float=float('inf'), damping: float=0.0, distance: float=0.0):
     c = PositionalConstraint(b1, b2, p1 - b1.x, p2 - b2.x, stiffness=stiffness, damping=0.0, distance=0.0)

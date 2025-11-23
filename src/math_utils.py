@@ -258,3 +258,6 @@ def solve_gauss_seidel(A: np.ndarray, b: np.ndarray, max_iterations: int = 1000,
         iterations += 1
 
     return x
+
+def calculate_stiffness_damping(mass: float, omega: float, zeta: float) -> (float, float):
+    return mass * omega ** 2, 2.0 * mass * omega * zeta
