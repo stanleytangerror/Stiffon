@@ -1,0 +1,341 @@
+import numpy as np
+np.seterr(all='raise')
+
+from numpy.linalg import norm
+from math_utils import Vec2, Mat22, Transform2d, integrate_transform2d, cross2d, normalized, solve_gauss_seidel
+from geometry_2d import Rectangle, Circle
+from renderer import Renderer
+
+class Body2d:
+    def __init__(self, mass: float, inertia: float = 1.0, 
+            linear_velocity: Vec2 = Vec2(0, 0), angular_velocity: float = 0.0, 
+            pose: Transform2d = Transform2d(Vec2(0, 0), 0.0), 
+            geometry: Rectangle | Circle = Rectangle(Vec2(0.5, 0.5))):  
+
+        safe_inv_mass = lambda m: 1.0 / m if m != float('inf') else 0.0
+        safe_inv_inertia = lambda i: 1.0 / i if i != float('inf') else 0.0
+        
+        self.mass = mass
+        self.inv_mass = safe_inv_mass(mass)
+        self.inertia = inertia
+        self.inv_inertia = safe_inv_inertia(inertia)
+        self.inv_inertia_world = self.inv_inertia
+        self.linear_velocity = linear_velocity
+        self.angular_velocity = angular_velocity
+        self.pose = pose
+        self.geometry = geometry
+        self.total_force = Vec2(0, 0)
+        self.total_torque = 0.0
+        self.delta_linear_velocity = Vec2(0, 0)
+        self.delta_angular_velocity = 0.0
+
+    def apply_force(self, force: Vec2, point: Vec2):
+        """Apply a force at a point. In 2D, torque is a scalar (cross product z-component)"""
+        self.total_force += force
+        # In 2D, torque = cross2d(r, force) where r = point - origin
+        r = point - self.pose.origin
+        self.total_torque += cross2d(r, force)
+
+class PinConstraint2d:
+    def __init__(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2):
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = body_A.pose.inverse().transformPosition(point_A)
+        self.anchor_B = body_B.pose.inverse().transformPosition(point_B)
+        self.applied_impulse_magnitude = np.zeros((2, 1))
+    
+    def setup(self, dt: float):
+        # Rotate anchor points from local to world space
+        r_A = self.body_A.pose.transformDirection(self.anchor_A)
+        r_B = self.body_B.pose.transformDirection(self.anchor_B)
+
+        c_init = self.body_A.pose.origin + r_A - (self.body_B.pose.origin + r_B)
+
+        # In 2D: 2 constraints (x and y), 6 DOF (2 linear + 1 angular per body)
+        # Jacobian: J = [ I_2, -[r_A]_perp, -I_2, [r_B]_perp ]
+        # where [r]_perp = [-r.y, r.x]^T for 2D cross product
+        self.jacobian = np.zeros((2, 6))
+        self.jacobian[:, 0:2] = np.eye(2)  # Body A linear
+        self.jacobian[0, 2] = -r_A.y  # Body A angular (x component)
+        self.jacobian[1, 2] = r_A.x   # Body A angular (y component)
+        self.jacobian[:, 3:5] = -np.eye(2)  # Body B linear
+        self.jacobian[0, 5] = r_B.y   # Body B angular (x component)
+        self.jacobian[1, 5] = -r_B.x  # Body B angular (y component)
+
+        self.generic_inv_mass = np.zeros((6, 6))
+        self.generic_inv_mass[0:2, 0:2] = np.eye(2) * self.body_A.inv_mass
+        self.generic_inv_mass[2, 2] = self.body_A.inv_inertia_world
+        self.generic_inv_mass[3:5, 3:5] = np.eye(2) * self.body_B.inv_mass
+        self.generic_inv_mass[5, 5] = self.body_B.inv_inertia_world
+
+        self.generic_velocity = np.zeros((6, 1))
+        self.generic_velocity[0:2, 0] = self.body_A.linear_velocity
+        self.generic_velocity[2, 0] = self.body_A.angular_velocity
+        self.generic_velocity[3:5, 0] = self.body_B.linear_velocity
+        self.generic_velocity[5, 0] = self.body_B.angular_velocity
+
+        self.generic_external_impulse = np.zeros((6, 1))
+        self.generic_external_impulse[0:2, 0] = self.body_A.inv_mass * self.body_A.total_force * dt
+        self.generic_external_impulse[2, 0] = self.body_A.inv_inertia_world * self.body_A.total_torque * dt
+        self.generic_external_impulse[3:5, 0] = self.body_B.inv_mass * self.body_B.total_force * dt
+        self.generic_external_impulse[5, 0] = self.body_B.inv_inertia_world * self.body_B.total_torque * dt
+
+        erp = 0.2
+        self.bias = erp / dt * c_init.reshape(2, 1)
+
+    def warm_up(self):
+        warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() @ self.applied_impulse_magnitude
+
+        self.body_A.delta_linear_velocity += Vec2(warm_start_delta_velocity[0, 0], warm_start_delta_velocity[1, 0])
+        self.body_A.delta_angular_velocity += warm_start_delta_velocity[2, 0]
+        self.body_B.delta_linear_velocity += Vec2(warm_start_delta_velocity[3, 0], warm_start_delta_velocity[4, 0])
+        self.body_B.delta_angular_velocity += warm_start_delta_velocity[5, 0]
+
+    def iteration(self, is_positional_iteration: bool):
+        generic_delta_velocity = np.zeros((6, 1))
+        generic_delta_velocity[0:2, 0] = self.body_A.delta_linear_velocity
+        generic_delta_velocity[2, 0] = self.body_A.delta_angular_velocity
+        generic_delta_velocity[3:5, 0] = self.body_B.delta_linear_velocity
+        generic_delta_velocity[5, 0] = self.body_B.delta_angular_velocity
+
+        if is_positional_iteration:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = solve_gauss_seidel(effective_mass, rhs)
+        impulse = self.jacobian.transpose() @ lamdba_
+
+        if not is_positional_iteration:
+            self.applied_impulse_magnitude += lamdba_
+
+        generic_delta_velocity += self.generic_inv_mass @ impulse
+
+        self.body_A.delta_linear_velocity = Vec2(generic_delta_velocity[0, 0], generic_delta_velocity[1, 0])
+        self.body_A.delta_angular_velocity = generic_delta_velocity[2, 0]
+        self.body_B.delta_linear_velocity = Vec2(generic_delta_velocity[3, 0], generic_delta_velocity[4, 0])
+        self.body_B.delta_angular_velocity = generic_delta_velocity[5, 0]
+
+class SpringConstraint2d:
+    def __init__(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = body_A.pose.inverse().transformPosition(point_A)
+        self.anchor_B = body_B.pose.inverse().transformPosition(point_B)
+        self.stiffness = stiffness
+        self.damping = damping
+        self.reduced_mass = 1.0 / body_A.inv_mass if body_B.inv_mass < 1e-10 else \
+                            1.0 / body_B.inv_mass if body_A.inv_mass < 1e-10 else \
+                            1.0 / (body_A.inv_mass * body_B.inv_mass) / (1.0 / body_A.inv_mass + 1.0 / body_B.inv_mass)
+    
+    def warm_up(self):
+        pass
+
+    def setup(self, dt: float):
+        # C = x_A + r_A - x_B - r_B
+        # J = [ I_2, -[r_A]_perp, -I_2, [r_B]_perp ]
+        r_A = self.body_A.pose.transformDirection(self.anchor_A)
+        r_B = self.body_B.pose.transformDirection(self.anchor_B)
+
+        self.jacobian = np.zeros((2, 6))
+        self.jacobian[:, 0:2] = np.eye(2)  # Body A linear
+        self.jacobian[0, 2] = -r_A.y  # Body A angular (x component)
+        self.jacobian[1, 2] = r_A.x   # Body A angular (y component)
+        self.jacobian[:, 3:5] = -np.eye(2)  # Body B linear
+        self.jacobian[0, 5] = r_B.y   # Body B angular (x component)
+        self.jacobian[1, 5] = -r_B.x  # Body B angular (y component)
+
+        self.generic_inv_mass = np.zeros((6, 6))
+        self.generic_inv_mass[0:2, 0:2] = np.eye(2) * self.body_A.inv_mass
+        self.generic_inv_mass[2, 2] = self.body_A.inv_inertia_world
+        self.generic_inv_mass[3:5, 3:5] = np.eye(2) * self.body_B.inv_mass
+        self.generic_inv_mass[5, 5] = self.body_B.inv_inertia_world
+
+        # In 2D, angular velocity is scalar, so cross product: ω × r = ω * (-r.y, r.x)
+        x_error = self.body_A.pose.origin + r_A - self.body_B.pose.origin - r_B
+        v_angular_A = Vec2(-r_A.y * self.body_A.angular_velocity, r_A.x * self.body_A.angular_velocity)
+        v_angular_B = Vec2(-r_B.y * self.body_B.angular_velocity, r_B.x * self.body_B.angular_velocity)
+        v_error = self.body_A.linear_velocity + v_angular_A - self.body_B.linear_velocity - v_angular_B
+        fs = -self.stiffness * x_error
+        fd = -self.damping * v_error
+        f = fs + fd
+        self.delta_relative_velocity = (f * dt / self.reduced_mass).reshape(2, 1)
+        self.impulse_lower_limit = np.minimum(fd * dt, np.minimum(f * dt, np.zeros(2))).reshape(2, 1)
+        self.impulse_upper_limit = np.maximum(fd * dt, np.maximum(f * dt, np.zeros(2))).reshape(2, 1)
+
+    def iteration(self, is_positional_iteration: bool):
+        if is_positional_iteration:
+            pass
+
+        generic_delta_velocity = np.zeros((6, 1))
+        generic_delta_velocity[0:2, 0] = self.body_A.delta_linear_velocity
+        generic_delta_velocity[2, 0] = self.body_A.delta_angular_velocity
+        generic_delta_velocity[3:5, 0] = self.body_B.delta_linear_velocity
+        generic_delta_velocity[5, 0] = self.body_B.delta_angular_velocity
+
+        rhs = -self.jacobian @ generic_delta_velocity + self.delta_relative_velocity
+
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = solve_gauss_seidel(effective_mass, rhs)
+
+        # the solved `lambda` is the impulse that will make the bodies behave exactly like being affected by this spring
+        # however, as a soft constraint, there can be other hard constraints or more stiff constrains break the target delta velocity
+        # so we need to clamp the impulse i.e. `lambda` to valid range
+        lamdba_ = np.minimum(np.maximum(lamdba_, self.impulse_lower_limit), self.impulse_upper_limit)
+        
+        impulse = self.jacobian.transpose() @ lamdba_
+        generic_delta_velocity += self.generic_inv_mass @ impulse
+
+        self.body_A.delta_linear_velocity = Vec2(generic_delta_velocity[0, 0], generic_delta_velocity[1, 0])
+        self.body_A.delta_angular_velocity = generic_delta_velocity[2, 0]
+        self.body_B.delta_linear_velocity = Vec2(generic_delta_velocity[3, 0], generic_delta_velocity[4, 0])
+        self.body_B.delta_angular_velocity = generic_delta_velocity[5, 0]
+
+class Scene:
+    def __init__(self):
+        self.gravity = Vec2(0.0, -10.0)
+        self.bodies = []
+        self.last_delta_time = None
+        self.persistent_constraints = []
+        self.position_iterations = 1
+        self.velocity_iterations = 1
+
+    def set_gravity(self, f: Vec2):
+        self.gravity = f
+
+    def add_body(self, body: Body2d):
+        self.bodies.append(body)
+
+    def step_simulation(self, dt: float):
+        if self.last_delta_time is None:
+            self.last_delta_time = dt
+
+        self.apply_gravity()
+
+        for constraint in self.persistent_constraints:
+            constraint.setup(dt)
+
+        for _ in range(self.position_iterations):
+            for constraint in self.persistent_constraints:
+                constraint.iteration(is_positional_iteration=True)
+        self.post_position_iteration(dt)
+
+        for constraint in self.persistent_constraints:
+            constraint.warm_up()
+        for _ in range(self.position_iterations):
+            for constraint in self.persistent_constraints:
+                constraint.iteration(is_positional_iteration=False)
+        self.post_velocity_iteration(dt)
+
+        self.last_delta_time = dt
+
+    def apply_gravity(self):
+        for body in self.bodies:
+            if body.mass != float('inf'):
+                body.apply_force(self.gravity * body.mass, body.pose.origin)
+    
+    def add_distance_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, distance: float):
+        self.persistent_constraints.append(DistanceConstraint2d(body_A, body_B, point_A, point_B, distance))
+    
+    def add_pin_constraint(self, body_A: Body2d, body_B: Body2d, anchor_A: Vec2, anchor_B: Vec2):
+        self.persistent_constraints.append(PinConstraint2d(body_A, body_B, anchor_A, anchor_B))
+    
+    def add_spring_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
+        self.persistent_constraints.append(SpringConstraint2d(body_A, body_B, point_A, point_B, stiffness, damping))
+    
+    def post_position_iteration(self, dt: float):
+        for body in self.bodies:
+            new_linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass * body.total_force * dt
+            new_angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world * body.total_torque * dt
+            
+            body.pose = integrate_transform2d(body.pose, new_linear_velocity, new_angular_velocity, dt)
+            body.inv_inertia_world = body.inv_inertia
+
+            body.delta_linear_velocity = Vec2(0, 0)
+            body.delta_angular_velocity = 0.0
+
+    def post_velocity_iteration(self, dt: float):
+        for body in self.bodies:
+            body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass * body.total_force * dt
+            body.angular_velocity = body.angular_velocity + body.delta_angular_velocity + body.inv_inertia_world * body.total_torque * dt
+            
+            body.total_force = Vec2(0, 0)
+            body.total_torque = 0.0
+            body.delta_linear_velocity = Vec2(0, 0)
+            body.delta_angular_velocity = 0.0
+
+class SceneDebugRenderer:
+    def __init__(self, scene: Scene, width: int, height: int):
+        self.scene = scene
+        self.renderer = Renderer(width=width, height=height)
+
+    def is_running(self):
+        return self.renderer.is_running()
+
+    def render(self):
+        self.renderer.begin_frame()
+        for body in self.scene.bodies:
+            self.draw_body(body, np.array([1.0, 0.0, 0.0]))
+        for constraint in self.scene.persistent_constraints:
+            self.draw_constraint(constraint, np.array([0.0, 1.0, 1.0]))
+        self.renderer.end_frame()
+
+    def draw_body(self, body: Body2d, color: np.ndarray):
+        world_matrix = body.pose.to_matrix()
+
+        if isinstance(body.geometry, Rectangle):
+            # Convert 2D rectangle to 3D box for rendering
+            scale = body.geometry.half_extents * 2
+            # Extend to 3D: use z=1.0 for depth
+            scale_matrix = np.diag(np.array([scale[0], scale[1], 1.0, 1.0]))
+            # Convert 3x3 matrix to 4x4
+            world_4x4 = np.eye(4)
+            world_4x4[:2, :2] = world_matrix[:2, :2]
+            world_4x4[:2, 3] = world_matrix[:2, 2]
+            self.renderer.draw_box(world_4x4 @ scale_matrix, color)
+        
+        elif isinstance(body.geometry, Circle):
+            # Convert 2D circle to 3D sphere for rendering
+            scale_matrix = np.diag(np.array([body.geometry.radius * 2, body.geometry.radius * 2, 1.0, 1.0]))
+            world_4x4 = np.eye(4)
+            world_4x4[:2, :2] = world_matrix[:2, :2]
+            world_4x4[:2, 3] = world_matrix[:2, 2]
+            self.renderer.draw_sphere(world_4x4 @ scale_matrix, color)
+    
+    def draw_constraint(self, constraint, color: np.ndarray):
+        scale = 0.4
+        scale_matrix = np.diag(np.array([scale, scale, scale, 1.0]))
+        if isinstance(constraint, DistanceConstraint2d) or isinstance(constraint, PinConstraint2d):
+            # Transform anchor from local to world space
+            anchor_A_world = constraint.body_A.pose.transformPosition(constraint.anchor_A)
+            anchor_B_world = constraint.body_B.pose.transformPosition(constraint.anchor_B)
+            # Create 4x4 matrices for rendering
+            mat_A = np.eye(4)
+            mat_A[0, 3] = anchor_A_world.x
+            mat_A[1, 3] = anchor_A_world.y
+            mat_B = np.eye(4)
+            mat_B[0, 3] = anchor_B_world.x
+            mat_B[1, 3] = anchor_B_world.y
+            self.renderer.draw_sphere(mat_A @ scale_matrix, color)
+            self.renderer.draw_sphere(mat_B @ scale_matrix, color)
+
+
+if __name__ == "__main__":
+    scene = Scene()
+    
+    pivot = Body2d(mass=float('inf'), inertia=float('inf'), pose=Transform2d(Vec2(0.0, 0.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
+    scene.add_body(pivot)
+
+    body = Body2d(mass=1.0, linear_velocity=Vec2(1.0, 10.0), pose=Transform2d(Vec2(-1.0, 3.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
+    scene.add_body(body)
+
+    constraint = SpringConstraint2d(pivot, body, Vec2(0.0, 0.0), Vec2(0.0, 0.0), stiffness=10.0, damping=1.0)
+    scene.add_spring_constraint(constraint)
+
+    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, 0.0, -10.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 1.0, 0.0]))
+
+    while renderer.is_running():
+        scene.step_simulation(0.01)
+        renderer.render()
