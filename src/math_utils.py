@@ -8,6 +8,12 @@ def normalized(v):
     else:
         return v
 
+def decompose_to_n_and_t(v, n):
+    assert np.linalg.norm(n) - 1.0 < 1e-6
+    
+    v_d = np.dot(n, v) * n
+    return v_d, v - v_d
+
 class Vec3(np.ndarray):
     """3D vector class as an alias to numpy array with shape (3,)"""
     def __new__(cls, x=0.0, y=0.0, z=0.0):
@@ -159,6 +165,12 @@ class Transform:
         result[:3, 3] = self.origin
         return Mat44(result)
 
+    def transformDirection(self, d: Vec3):
+        return self.basis @ d
+    
+    def transformPosition(self, p: Vec3):
+        return self.basis @ p + self.origin
+
 def create_world_matrix(translate=None, rotate=None, scale=None):
     matrix = np.eye(4)
     
@@ -192,6 +204,15 @@ def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_vel
 
 def skew_symmetric_matrix(v: Vec3):
     return Mat33(np.array([[0, -v.z, v.y], [v.z, 0, -v.x], [-v.y, v.x, 0]]))
+
+def generate_orthogonal_basis(v: Vec3):
+    v0 = normalized(v)
+    v1 = np.cross(v0, Vec3(1, 0, 0))
+    if np.linalg.norm(v1) < 1e-6:
+        v1 = np.cross(v0, Vec3(0, 1, 0))
+    v1 = normalized(v1)
+    v2 = np.cross(v0, v1)
+    return v0, v1, v2
 
 def solve_jacobian(A: np.ndarray, b: np.ndarray, max_iterations: int = 1000, tolerance: float = 1e-6):
     # A = D + L + U
@@ -237,3 +258,6 @@ def solve_gauss_seidel(A: np.ndarray, b: np.ndarray, max_iterations: int = 1000,
         iterations += 1
 
     return x
+
+def calculate_stiffness_damping(mass: float, omega: float, zeta: float) -> (float, float):
+    return mass * omega ** 2, 2.0 * mass * omega * zeta
