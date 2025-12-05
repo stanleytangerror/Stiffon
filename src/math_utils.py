@@ -377,6 +377,10 @@ def cross21_2d(v1: Vec2, v2: float) -> Vec2:
 def skew_symmetric_matrix(v: Vec3):
     return Mat33(np.array([[0, -v.z, v.y], [v.z, 0, -v.x], [-v.y, v.x, 0]]))
 
+def rotational_inertia_around_offset_2d(inertia: float, mass: float, offset: Vec2):
+    d = np.linalg.norm(offset)
+    return inertia + mass * d ** 2
+
 def generate_orthogonal_basis(v: Vec3):
     v0 = normalized(v)
     v1 = np.cross(v0, Vec3(1, 0, 0))

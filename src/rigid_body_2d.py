@@ -1,7 +1,7 @@
 import numpy as np
 np.seterr(all='raise')
 
-from math_utils import Vec2, Transform2d, integrate_transform2d, solve_gauss_seidel, cross21_2d, cross22_2d
+from math_utils import Vec2, Transform2d, integrate_transform2d, solve_gauss_seidel, cross21_2d, cross22_2d, rotational_inertia_around_offset_2d
 from geometry_2d import Rectangle, Circle
 from renderer import Renderer
 
@@ -135,10 +135,10 @@ class SpringConstraint2d:
         self.anchor_B = body_B.pose.inverse().transformPosition(point_B)
         self.stiffness = stiffness
         self.damping = damping
-        self.reduced_mass = 1.0 / body_A.inv_mass if body_B.inv_mass < 1e-10 else \
-                            1.0 / body_B.inv_mass if body_A.inv_mass < 1e-10 else \
-                            1.0 / (body_A.inv_mass * body_B.inv_mass) / (1.0 / body_A.inv_mass + 1.0 / body_B.inv_mass)
         self.generic_inv_mass = get_generic_inverse_mass(body_A, body_B)
+        self.reduced_mass = (body_A.mass if body_B.mass == float('inf') else
+                             body_B.mass if body_A.mass == float('inf') else
+                             (body_A.mass * body_B.mass) / (body_A.mass + body_B.mass))
     
     def warm_up(self):
         pass
@@ -165,8 +165,8 @@ class SpringConstraint2d:
         fd = -self.damping * v_error
         f = fs + fd
         self.delta_relative_velocity = (f * dt / self.reduced_mass).reshape(2, 1)
-        self.impulse_lower_limit = np.minimum(fd * dt, np.minimum(f * dt, np.zeros(2))).reshape(2, 1)
-        self.impulse_upper_limit = np.maximum(fd * dt, np.maximum(f * dt, np.zeros(2))).reshape(2, 1)
+        self.impulse_lower_limit = np.minimum(fd, np.minimum(f, np.zeros(2))).reshape(2, 1) * dt
+        self.impulse_upper_limit = np.maximum(fd, np.maximum(f, np.zeros(2))).reshape(2, 1) * dt
 
     def iteration(self, is_positional_iteration: bool):
         if is_positional_iteration:
@@ -188,6 +188,71 @@ class SpringConstraint2d:
         generic_delta_velocity_addition = self.generic_inv_mass @ impulse
 
         add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
+
+class AngularSpringConstraint2d:
+    def __init__(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
+        self.body_A = body_A
+        self.body_B = body_B
+        self.anchor_A = body_A.pose.inverse().transformPosition(point_A)
+        self.anchor_B = body_B.pose.inverse().transformPosition(point_B)
+        self.stiffness = stiffness
+        self.damping = damping
+
+        self.generic_inv_mass = get_generic_inverse_mass(body_A, body_B)
+
+        rotational_inertia_A = rotational_inertia_around_offset_2d(self.body_A.inertia, self.body_A.mass, self.anchor_A)
+        rotational_inertia_B = rotational_inertia_around_offset_2d(self.body_B.inertia, self.body_B.mass, self.anchor_B)
+        self.reduced_mass = (rotational_inertia_A if rotational_inertia_B == float('inf') else \
+                             rotational_inertia_B if rotational_inertia_A == float('inf') else \
+                             (rotational_inertia_A * rotational_inertia_B) / (rotational_inertia_A + rotational_inertia_B))
+    
+    def warm_up(self):
+        pass
+
+    def setup(self, dt: float):
+        
+        r_A = self.body_A.pose.transformDirection(self.anchor_A)
+        r_B = self.body_B.pose.transformDirection(self.anchor_B)
+
+        # C = ω_A - ω_B in R
+        # J = [ 0_2, I, 0_2, -I ] in R^6
+        self.jacobian = np.zeros((1, 6))
+        self.jacobian[0, 2] = 1.0
+        self.jacobian[0, 5] = -1.0
+
+        # In 2D, angular velocity is scalar, so cross product: ω × r = ω * (-r.y, r.x)
+        x_error = self.body_A.pose.angle - self.body_B.pose.angle
+        v_error = self.body_A.angular_velocity - self.body_B.angular_velocity
+        fs = -self.stiffness * x_error
+        fd = -self.damping * v_error
+        f = fs + fd
+
+        self.delta_relative_velocity = f * dt / self.reduced_mass
+        
+        self.impulse_lower_limit = min(f, fd, 0)* dt
+        self.impulse_upper_limit = max(f, fd, 0) * dt
+
+    def iteration(self, is_positional_iteration: bool):
+        if is_positional_iteration:
+            pass
+
+        generic_delta_velocity = get_generic_delta_velocity(self.body_A, self.body_B)
+
+        rhs = -self.jacobian @ generic_delta_velocity + self.delta_relative_velocity
+
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = rhs / effective_mass
+
+        # the solved `lambda` is the impulse that will make the bodies behave exactly like being affected by this spring
+        # however, as a soft constraint, there can be other hard constraints or more stiff constrains break the target delta velocity
+        # so we need to clamp the impulse i.e. `lambda` to valid range
+        lamdba_ = np.minimum(np.maximum(lamdba_, self.impulse_lower_limit), self.impulse_upper_limit)
+        
+        impulse = self.jacobian.transpose() @ lamdba_
+        generic_delta_velocity_addition = self.generic_inv_mass @ impulse
+
+        add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
+
 
 class Scene2d:
     def __init__(self):
@@ -237,6 +302,9 @@ class Scene2d:
     
     def add_spring_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
         self.persistent_constraints.append(SpringConstraint2d(body_A, body_B, point_A, point_B, stiffness, damping))
+    
+    def add_angular_spring_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
+        self.persistent_constraints.append(AngularSpringConstraint2d(body_A, body_B, point_A, point_B, stiffness, damping))
     
     def post_position_iteration(self, dt: float):
         for body in self.bodies:
