@@ -1,8 +1,7 @@
 import numpy as np
 np.seterr(all='raise')
 
-from numpy.linalg import norm
-from math_utils import Vec2, Mat22, Transform2d, integrate_transform2d, cross2d, normalized, solve_gauss_seidel
+from math_utils import Vec2, Transform2d, integrate_transform2d, solve_gauss_seidel, cross21_2d, cross22_2d
 from geometry_2d import Rectangle, Circle
 from renderer import Renderer
 
@@ -34,7 +33,45 @@ class Body2d:
         self.total_force += force
         # In 2D, torque = cross2d(r, force) where r = point - origin
         r = point - self.pose.origin
-        self.total_torque += cross2d(r, force)
+        self.total_torque += cross22_2d(r, force)
+
+def get_generic_inverse_mass(body_A: Body2d, body_B: Body2d):
+    generic_inv_mass = np.zeros((6, 6))
+    generic_inv_mass[0:2, 0:2] = np.eye(2) * body_A.inv_mass
+    generic_inv_mass[2, 2] = body_A.inv_inertia_world
+    generic_inv_mass[3:5, 3:5] = np.eye(2) * body_B.inv_mass
+    generic_inv_mass[5, 5] = body_B.inv_inertia_world
+    return generic_inv_mass
+
+def get_generic_external_impulse(body_A: Body2d, body_B: Body2d, dt: float):
+    generic_external_impulse = np.zeros((6, 1))
+    generic_external_impulse[0:2, 0] = body_A.inv_mass * body_A.total_force * dt
+    generic_external_impulse[2, 0] = body_A.inv_inertia_world * body_A.total_torque * dt
+    generic_external_impulse[3:5, 0] = body_B.inv_mass * body_B.total_force * dt
+    generic_external_impulse[5, 0] = body_B.inv_inertia_world * body_B.total_torque * dt
+    return generic_external_impulse
+
+def get_generic_velocity(body_A: Body2d, body_B: Body2d):
+    generic_velocity = np.zeros((6, 1))
+    generic_velocity[0:2, 0] = body_A.linear_velocity
+    generic_velocity[2, 0] = body_A.angular_velocity
+    generic_velocity[3:5, 0] = body_B.linear_velocity
+    generic_velocity[5, 0] = body_B.angular_velocity
+    return generic_velocity
+
+def get_generic_delta_velocity(body_A: Body2d, body_B: Body2d):
+    generic_delta_velocity = np.zeros((6, 1))
+    generic_delta_velocity[0:2, 0] = body_A.delta_linear_velocity
+    generic_delta_velocity[2, 0] = body_A.delta_angular_velocity
+    generic_delta_velocity[3:5, 0] = body_B.delta_linear_velocity
+    generic_delta_velocity[5, 0] = body_B.delta_angular_velocity
+    return generic_delta_velocity
+
+def add_back_generic_delta_velocity(body_A: Body2d, body_B: Body2d, generic_delta_velocity: np.ndarray):
+    body_A.delta_linear_velocity += Vec2(generic_delta_velocity[0, 0], generic_delta_velocity[1, 0])
+    body_A.delta_angular_velocity += generic_delta_velocity[2, 0]
+    body_B.delta_linear_velocity += Vec2(generic_delta_velocity[3, 0], generic_delta_velocity[4, 0])
+    body_B.delta_angular_velocity += generic_delta_velocity[5, 0]
 
 class PinConstraint2d:
     def __init__(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2):
@@ -43,6 +80,7 @@ class PinConstraint2d:
         self.anchor_A = body_A.pose.inverse().transformPosition(point_A)
         self.anchor_B = body_B.pose.inverse().transformPosition(point_B)
         self.applied_impulse_magnitude = np.zeros((2, 1))
+        self.generic_inv_mass = get_generic_inverse_mass(body_A, body_B)
     
     def setup(self, dt: float):
         # Rotate anchor points from local to world space
@@ -51,34 +89,16 @@ class PinConstraint2d:
 
         c_init = self.body_A.pose.origin + r_A - (self.body_B.pose.origin + r_B)
 
-        # In 2D: 2 constraints (x and y), 6 DOF (2 linear + 1 angular per body)
-        # Jacobian: J = [ I_2, -[r_A]_perp, -I_2, [r_B]_perp ]
-        # where [r]_perp = [-r.y, r.x]^T for 2D cross product
+        # C = v_A + ω_A × r_A - v_B - ω_B × r_B in R^2
+        # J = [ I_2, -[r_A]x, -I_2, [r_B]x ] in R^2x6
         self.jacobian = np.zeros((2, 6))
-        self.jacobian[:, 0:2] = np.eye(2)  # Body A linear
-        self.jacobian[0, 2] = -r_A.y  # Body A angular (x component)
-        self.jacobian[1, 2] = r_A.x   # Body A angular (y component)
-        self.jacobian[:, 3:5] = -np.eye(2)  # Body B linear
-        self.jacobian[0, 5] = r_B.y   # Body B angular (x component)
-        self.jacobian[1, 5] = -r_B.x  # Body B angular (y component)
+        self.jacobian[:, 0:2] = np.eye(2)
+        self.jacobian[:, 2] = -cross21_2d(r_A, 1.0)
+        self.jacobian[:, 3:5] = -np.eye(2)
+        self.jacobian[:, 5] = cross21_2d(r_B, 1.0)
 
-        self.generic_inv_mass = np.zeros((6, 6))
-        self.generic_inv_mass[0:2, 0:2] = np.eye(2) * self.body_A.inv_mass
-        self.generic_inv_mass[2, 2] = self.body_A.inv_inertia_world
-        self.generic_inv_mass[3:5, 3:5] = np.eye(2) * self.body_B.inv_mass
-        self.generic_inv_mass[5, 5] = self.body_B.inv_inertia_world
-
-        self.generic_velocity = np.zeros((6, 1))
-        self.generic_velocity[0:2, 0] = self.body_A.linear_velocity
-        self.generic_velocity[2, 0] = self.body_A.angular_velocity
-        self.generic_velocity[3:5, 0] = self.body_B.linear_velocity
-        self.generic_velocity[5, 0] = self.body_B.angular_velocity
-
-        self.generic_external_impulse = np.zeros((6, 1))
-        self.generic_external_impulse[0:2, 0] = self.body_A.inv_mass * self.body_A.total_force * dt
-        self.generic_external_impulse[2, 0] = self.body_A.inv_inertia_world * self.body_A.total_torque * dt
-        self.generic_external_impulse[3:5, 0] = self.body_B.inv_mass * self.body_B.total_force * dt
-        self.generic_external_impulse[5, 0] = self.body_B.inv_inertia_world * self.body_B.total_torque * dt
+        self.generic_velocity = get_generic_velocity(self.body_A, self.body_B)
+        self.generic_external_impulse = get_generic_external_impulse(self.body_A, self.body_B, dt)
 
         erp = 0.2
         self.bias = erp / dt * c_init.reshape(2, 1)
@@ -86,17 +106,10 @@ class PinConstraint2d:
     def warm_up(self):
         warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() @ self.applied_impulse_magnitude
 
-        self.body_A.delta_linear_velocity += Vec2(warm_start_delta_velocity[0, 0], warm_start_delta_velocity[1, 0])
-        self.body_A.delta_angular_velocity += warm_start_delta_velocity[2, 0]
-        self.body_B.delta_linear_velocity += Vec2(warm_start_delta_velocity[3, 0], warm_start_delta_velocity[4, 0])
-        self.body_B.delta_angular_velocity += warm_start_delta_velocity[5, 0]
+        add_back_generic_delta_velocity(self.body_A, self.body_B, warm_start_delta_velocity)
 
     def iteration(self, is_positional_iteration: bool):
-        generic_delta_velocity = np.zeros((6, 1))
-        generic_delta_velocity[0:2, 0] = self.body_A.delta_linear_velocity
-        generic_delta_velocity[2, 0] = self.body_A.delta_angular_velocity
-        generic_delta_velocity[3:5, 0] = self.body_B.delta_linear_velocity
-        generic_delta_velocity[5, 0] = self.body_B.delta_angular_velocity
+        generic_delta_velocity = get_generic_delta_velocity(self.body_A, self.body_B)
 
         if is_positional_iteration:
             rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
@@ -110,12 +123,9 @@ class PinConstraint2d:
         if not is_positional_iteration:
             self.applied_impulse_magnitude += lamdba_
 
-        generic_delta_velocity += self.generic_inv_mass @ impulse
+        generic_delta_velocity_addition = self.generic_inv_mass @ impulse
 
-        self.body_A.delta_linear_velocity = Vec2(generic_delta_velocity[0, 0], generic_delta_velocity[1, 0])
-        self.body_A.delta_angular_velocity = generic_delta_velocity[2, 0]
-        self.body_B.delta_linear_velocity = Vec2(generic_delta_velocity[3, 0], generic_delta_velocity[4, 0])
-        self.body_B.delta_angular_velocity = generic_delta_velocity[5, 0]
+        add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
 
 class SpringConstraint2d:
     def __init__(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
@@ -128,29 +138,23 @@ class SpringConstraint2d:
         self.reduced_mass = 1.0 / body_A.inv_mass if body_B.inv_mass < 1e-10 else \
                             1.0 / body_B.inv_mass if body_A.inv_mass < 1e-10 else \
                             1.0 / (body_A.inv_mass * body_B.inv_mass) / (1.0 / body_A.inv_mass + 1.0 / body_B.inv_mass)
+        self.generic_inv_mass = get_generic_inverse_mass(body_A, body_B)
     
     def warm_up(self):
         pass
 
     def setup(self, dt: float):
-        # C = x_A + r_A - x_B - r_B
-        # J = [ I_2, -[r_A]_perp, -I_2, [r_B]_perp ]
+        
         r_A = self.body_A.pose.transformDirection(self.anchor_A)
         r_B = self.body_B.pose.transformDirection(self.anchor_B)
 
+        # C = v_A + ω_A × r_A - v_B - ω_B × r_B in R^2
+        # J = [ I_2, -[r_A]x, -I_2, [r_B]x ] in R^2x6
         self.jacobian = np.zeros((2, 6))
-        self.jacobian[:, 0:2] = np.eye(2)  # Body A linear
-        self.jacobian[0, 2] = -r_A.y  # Body A angular (x component)
-        self.jacobian[1, 2] = r_A.x   # Body A angular (y component)
-        self.jacobian[:, 3:5] = -np.eye(2)  # Body B linear
-        self.jacobian[0, 5] = r_B.y   # Body B angular (x component)
-        self.jacobian[1, 5] = -r_B.x  # Body B angular (y component)
-
-        self.generic_inv_mass = np.zeros((6, 6))
-        self.generic_inv_mass[0:2, 0:2] = np.eye(2) * self.body_A.inv_mass
-        self.generic_inv_mass[2, 2] = self.body_A.inv_inertia_world
-        self.generic_inv_mass[3:5, 3:5] = np.eye(2) * self.body_B.inv_mass
-        self.generic_inv_mass[5, 5] = self.body_B.inv_inertia_world
+        self.jacobian[:, 0:2] = np.eye(2)
+        self.jacobian[:, 2] = -cross21_2d(r_A, 1.0)
+        self.jacobian[:, 3:5] = -np.eye(2)
+        self.jacobian[:, 5] = cross21_2d(r_B, 1.0)
 
         # In 2D, angular velocity is scalar, so cross product: ω × r = ω * (-r.y, r.x)
         x_error = self.body_A.pose.origin + r_A - self.body_B.pose.origin - r_B
@@ -168,11 +172,7 @@ class SpringConstraint2d:
         if is_positional_iteration:
             pass
 
-        generic_delta_velocity = np.zeros((6, 1))
-        generic_delta_velocity[0:2, 0] = self.body_A.delta_linear_velocity
-        generic_delta_velocity[2, 0] = self.body_A.delta_angular_velocity
-        generic_delta_velocity[3:5, 0] = self.body_B.delta_linear_velocity
-        generic_delta_velocity[5, 0] = self.body_B.delta_angular_velocity
+        generic_delta_velocity = get_generic_delta_velocity(self.body_A, self.body_B)
 
         rhs = -self.jacobian @ generic_delta_velocity + self.delta_relative_velocity
 
@@ -185,14 +185,11 @@ class SpringConstraint2d:
         lamdba_ = np.minimum(np.maximum(lamdba_, self.impulse_lower_limit), self.impulse_upper_limit)
         
         impulse = self.jacobian.transpose() @ lamdba_
-        generic_delta_velocity += self.generic_inv_mass @ impulse
+        generic_delta_velocity_addition = self.generic_inv_mass @ impulse
 
-        self.body_A.delta_linear_velocity = Vec2(generic_delta_velocity[0, 0], generic_delta_velocity[1, 0])
-        self.body_A.delta_angular_velocity = generic_delta_velocity[2, 0]
-        self.body_B.delta_linear_velocity = Vec2(generic_delta_velocity[3, 0], generic_delta_velocity[4, 0])
-        self.body_B.delta_angular_velocity = generic_delta_velocity[5, 0]
+        add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
 
-class Scene:
+class Scene2d:
     def __init__(self):
         self.gravity = Vec2(0.0, -10.0)
         self.bodies = []
@@ -235,9 +232,6 @@ class Scene:
             if body.mass != float('inf'):
                 body.apply_force(self.gravity * body.mass, body.pose.origin)
     
-    def add_distance_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, distance: float):
-        self.persistent_constraints.append(DistanceConstraint2d(body_A, body_B, point_A, point_B, distance))
-    
     def add_pin_constraint(self, body_A: Body2d, body_B: Body2d, anchor_A: Vec2, anchor_B: Vec2):
         self.persistent_constraints.append(PinConstraint2d(body_A, body_B, anchor_A, anchor_B))
     
@@ -265,8 +259,8 @@ class Scene:
             body.delta_linear_velocity = Vec2(0, 0)
             body.delta_angular_velocity = 0.0
 
-class SceneDebugRenderer:
-    def __init__(self, scene: Scene, width: int, height: int):
+class Scene2dDebugRenderer:
+    def __init__(self, scene: Scene2d, width: int, height: int):
         self.scene = scene
         self.renderer = Renderer(width=width, height=height)
 
@@ -306,7 +300,7 @@ class SceneDebugRenderer:
     def draw_constraint(self, constraint, color: np.ndarray):
         scale = 0.4
         scale_matrix = np.diag(np.array([scale, scale, scale, 1.0]))
-        if isinstance(constraint, DistanceConstraint2d) or isinstance(constraint, PinConstraint2d):
+        if isinstance(constraint, SpringConstraint2d) or isinstance(constraint, PinConstraint2d):
             # Transform anchor from local to world space
             anchor_A_world = constraint.body_A.pose.transformPosition(constraint.anchor_A)
             anchor_B_world = constraint.body_B.pose.transformPosition(constraint.anchor_B)
@@ -322,7 +316,7 @@ class SceneDebugRenderer:
 
 
 if __name__ == "__main__":
-    scene = Scene()
+    scene = Scene2d()
     
     pivot = Body2d(mass=float('inf'), inertia=float('inf'), pose=Transform2d(Vec2(0.0, 0.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
     scene.add_body(pivot)
@@ -330,10 +324,9 @@ if __name__ == "__main__":
     body = Body2d(mass=1.0, linear_velocity=Vec2(1.0, 10.0), pose=Transform2d(Vec2(-1.0, 3.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
     scene.add_body(body)
 
-    constraint = SpringConstraint2d(pivot, body, Vec2(0.0, 0.0), Vec2(0.0, 0.0), stiffness=10.0, damping=1.0)
-    scene.add_spring_constraint(constraint)
+    scene.add_spring_constraint(pivot, body, Vec2(0.0, 0.0), Vec2(0.0, 0.0), stiffness=10.0, damping=1.0)
 
-    renderer = SceneDebugRenderer(scene, width=800, height=600)
+    renderer = Scene2dDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, 0.0, -10.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 1.0, 0.0]))
 
     while renderer.is_running():

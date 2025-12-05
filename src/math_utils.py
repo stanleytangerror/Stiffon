@@ -365,9 +365,14 @@ def integrate_transform2d(transform: Transform2d, linear_velocity: Vec2, angular
     new_angle = transform.angle + angular_velocity * dt
     return Transform2d(new_origin, new_angle)
 
-def cross2d(v1: Vec2, v2: Vec2) -> float:
-    """2D cross product (returns scalar: v1.x * v2.y - v1.y * v2.x)"""
-    return v1.x * v2.y - v1.y * v2.x
+def cross22_2d(v1: Vec2, v2: Vec2) -> float:
+    return np.cross(np.array([v1.x, v1.y, 0]), np.array([v2.x, v2.y, 0]))[2]
+
+def cross12_2d(v1: float, v2: Vec2) -> Vec2:
+    return Vec2(np.cross(np.array([0, 0, v1]), np.array([v2.x, v2.y, 0]))[2])
+
+def cross21_2d(v1: Vec2, v2: float) -> Vec2:
+    return Vec2(np.cross(np.array([v1.x, v1.y, 0]), np.array([0, 0, v2]))[0:2])
 
 def skew_symmetric_matrix(v: Vec3):
     return Mat33(np.array([[0, -v.z, v.y], [v.z, 0, -v.x], [-v.y, v.x, 0]]))
