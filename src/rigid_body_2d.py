@@ -202,7 +202,7 @@ class AngularSpringConstraint2d:
 
         rotational_inertia_A = rotational_inertia_around_offset_2d(self.body_A.inertia, self.body_A.mass, self.anchor_A)
         rotational_inertia_B = rotational_inertia_around_offset_2d(self.body_B.inertia, self.body_B.mass, self.anchor_B)
-        self.reduced_mass = (rotational_inertia_A if rotational_inertia_B == float('inf') else \
+        self.reduced_inertia = (rotational_inertia_A if rotational_inertia_B == float('inf') else \
                              rotational_inertia_B if rotational_inertia_A == float('inf') else \
                              (rotational_inertia_A * rotational_inertia_B) / (rotational_inertia_A + rotational_inertia_B))
     
@@ -211,9 +211,6 @@ class AngularSpringConstraint2d:
 
     def setup(self, dt: float):
         
-        r_A = self.body_A.pose.transformDirection(self.anchor_A)
-        r_B = self.body_B.pose.transformDirection(self.anchor_B)
-
         # C = ω_A - ω_B in R
         # J = [ 0_2, I, 0_2, -I ] in R^6
         self.jacobian = np.zeros((1, 6))
@@ -227,7 +224,7 @@ class AngularSpringConstraint2d:
         fd = -self.damping * v_error
         f = fs + fd
 
-        self.delta_relative_velocity = f * dt / self.reduced_mass
+        self.delta_relative_velocity = f * dt / self.reduced_inertia
         
         self.impulse_lower_limit = min(f, fd, 0)* dt
         self.impulse_upper_limit = max(f, fd, 0) * dt
