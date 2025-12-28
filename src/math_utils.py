@@ -82,6 +82,111 @@ class Vec3(np.ndarray):
         else:
             return super().__sub__(other)
 
+class Vec2(np.ndarray):
+    """2D vector class as an alias to numpy array with shape (2,)"""
+    def __new__(cls, x=0.0, y=0.0):
+        if isinstance(x, (list, tuple, np.ndarray)):
+            # If first argument is already an array-like object
+            arr = np.array(x, dtype=np.float64)
+            if arr.shape != (2,):
+                raise ValueError(f"Vec2 requires shape (2,), got {arr.shape}")
+        else:
+            # If separate x, y arguments
+            arr = np.array([x, y], dtype=np.float64)
+        
+        return arr.view(cls)
+    
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        if self.shape == ():
+            return float(self)
+        if self.shape != (2,) and self.shape != (2, 1) and self.shape != (1, 2):
+            raise ValueError(f"Vec2 requires shape (2,), got {self.shape}")
+    
+    def __array_wrap__(self, out_arr, context=None):
+        """Handle slicing and other operations that change the shape"""
+        if out_arr.shape == (2,):
+            return out_arr.view(Vec2)
+        else:
+            # Return as regular numpy array for non-2D shapes
+            return out_arr.view(np.ndarray)
+    
+    @property
+    def x(self):
+        return self[0]
+    
+    @property
+    def y(self):
+        return self[1]
+    
+    @x.setter
+    def x(self, value):
+        self[0] = value
+    
+    @y.setter
+    def y(self, value):
+        self[1] = value
+    
+    def __add__(self, other):
+        if isinstance(other, Vec2):
+            result = super().__add__(other)
+            return Vec2(result[0], result[1])
+        else:
+            return super().__add__(other)
+    
+    def __sub__(self, other):
+        if isinstance(other, Vec2):
+            result = super().__sub__(other)
+            return Vec2(result[0], result[1])
+        else:
+            return super().__sub__(other)
+
+class Mat22(np.ndarray):
+    """2x2 matrix class as an alias to numpy array with shape (2, 2)"""
+    def __new__(cls, data=None):
+        if data is None:
+            arr = np.zeros((2, 2), dtype=np.float64)
+        elif isinstance(data, (list, tuple, np.ndarray)):
+            arr = np.array(data, dtype=np.float64)
+            if arr.shape != (2, 2):
+                raise ValueError(f"Mat22 requires shape (2, 2), got {arr.shape}")
+        else:
+            raise ValueError("Mat22 requires array-like data or None for identity")
+        
+        return arr.view(cls)
+    
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        if self.shape == (2,):
+            return Vec2(self[0], self[1])
+        if self.shape != (2, 2):
+            raise ValueError(f"Mat22 requires shape (2, 2), got {self.shape}")
+
+    def __array_wrap__(self, out_arr, context=None):
+        if out_arr.shape == (2,):
+            return Vec2(out_arr[0], out_arr[1])
+        elif out_arr.shape == (2, 2):
+            return Mat22(out_arr)
+        else:
+            return out_arr.view(np.ndarray)
+
+    @staticmethod
+    def identity():
+        return Mat22(np.eye(2, dtype=np.float64))
+
+    @staticmethod
+    def zero():
+        return Mat22(np.zeros((2, 2), dtype=np.float64))
+    
+    @staticmethod
+    def rotation(angle: float):
+        """Create a 2D rotation matrix from an angle in radians"""
+        c = np.cos(angle)
+        s = np.sin(angle)
+        return Mat22(np.array([[c, -s], [s, c]], dtype=np.float64))
+
 class Mat33(np.ndarray):
     """3x3 matrix class as an alias to numpy array with shape (3, 3)"""
     def __new__(cls, data=None):
@@ -171,6 +276,58 @@ class Transform:
     def transformPosition(self, p: Vec3):
         return self.basis @ p + self.origin
 
+class Transform2d:
+    def __init__(self, origin: Vec2, angle: float = 0.0):
+        self.origin = origin
+        self.angle = angle
+    
+    def __matmul__(self, other):
+        if isinstance(other, Transform2d):
+            # Rotate other's origin by self's angle, then add self's origin
+            # Combine rotations by adding angles
+            rotated_origin = self._rotate_vector(other.origin, self.angle)
+            new_origin = self.origin + rotated_origin
+            new_angle = self.angle + other.angle
+            return Transform2d(new_origin, new_angle)
+        else:
+            raise ValueError(f"Cannot multiply Transform2d with {type(other)}")
+
+    def inverse(self):
+        # Inverse rotation: negative angle
+        # Inverse translation: rotate origin by negative angle, then negate
+        inv_origin = self._rotate_vector(-self.origin, -self.angle)
+        return Transform2d(inv_origin, -self.angle)
+    
+    def _rotate_vector(self, v: Vec2, angle: float) -> Vec2:
+        """Rotate a vector by an angle (in radians)"""
+        c = np.cos(angle)
+        s = np.sin(angle)
+        x = v.x * c - v.y * s
+        y = v.x * s + v.y * c
+        return Vec2(x, y)
+    
+    def to_matrix(self):
+        """Convert to 3x3 homogeneous transformation matrix"""
+        c = np.cos(self.angle)
+        s = np.sin(self.angle)
+        result = np.eye(3, dtype=np.float64)
+        result[0, 0] = c
+        result[0, 1] = -s
+        result[1, 0] = s
+        result[1, 1] = c
+        result[0, 2] = self.origin.x
+        result[1, 2] = self.origin.y
+        return result
+
+    def transformDirection(self, d: Vec2):
+        """Transform a direction vector (rotation only, no translation)"""
+        return self._rotate_vector(d, self.angle)
+    
+    def transformPosition(self, p: Vec2):
+        """Transform a position vector (rotation + translation)"""
+        rotated = self._rotate_vector(p, self.angle)
+        return rotated + self.origin
+
 def create_world_matrix(translate=None, rotate=None, scale=None):
     matrix = np.eye(4)
     
@@ -202,8 +359,27 @@ def integrate_transform(transform: Transform, linear_velocity: Vec3, angular_vel
     new_basis = R.from_rotvec(angular_velocity * dt).as_matrix() @ R.from_matrix(transform.basis).as_matrix()
     return Transform(new_origin, new_basis)
 
+def integrate_transform2d(transform: Transform2d, linear_velocity: Vec2, angular_velocity: float, dt: float):
+    """Integrate a 2D transform with linear and angular velocity"""
+    new_origin = transform.origin + linear_velocity * dt
+    new_angle = transform.angle + angular_velocity * dt
+    return Transform2d(new_origin, new_angle)
+
+def cross22_2d(v1: Vec2, v2: Vec2) -> float:
+    return np.cross(np.array([v1.x, v1.y, 0]), np.array([v2.x, v2.y, 0]))[2]
+
+def cross12_2d(v1: float, v2: Vec2) -> Vec2:
+    return Vec2(np.cross(np.array([0, 0, v1]), np.array([v2.x, v2.y, 0]))[2])
+
+def cross21_2d(v1: Vec2, v2: float) -> Vec2:
+    return Vec2(np.cross(np.array([v1.x, v1.y, 0]), np.array([0, 0, v2]))[0:2])
+
 def skew_symmetric_matrix(v: Vec3):
     return Mat33(np.array([[0, -v.z, v.y], [v.z, 0, -v.x], [-v.y, v.x, 0]]))
+
+def rotational_inertia_around_offset_2d(inertia: float, mass: float, offset: Vec2):
+    d = np.linalg.norm(offset)
+    return inertia + mass * d ** 2
 
 def generate_orthogonal_basis(v: Vec3):
     v0 = normalized(v)
