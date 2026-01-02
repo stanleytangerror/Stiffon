@@ -370,7 +370,7 @@ class Scene2d:
         self.bodies = []
         self.last_delta_time = None
         self.persistent_constraints = []
-        self.position_iterations = 1
+        self.position_iterations = 3
         self.velocity_iterations = 1
 
     def set_gravity(self, f: Vec2):
