@@ -251,13 +251,126 @@ class AngularSpringConstraint2d:
         add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
 
 
+class PrismaticConstraint2d_LinearPart:
+    def __init__(self, body_A: Body2d, body_B: Body2d, 
+        localPoint_A: Vec2, localAxis_A: Vec2, 
+        localPoint_B: Vec2):
+
+        self.body_A = body_A
+        self.body_B = body_B
+        self.localPoint_A = localPoint_A
+        self.localAxis_A = localAxis_A
+        self.localPoint_B = localPoint_B
+        self.applied_impulse_magnitude = np.zeros((1, 1))
+        self.generic_inv_mass = get_generic_inverse_mass(body_A, body_B)
+    
+    def setup(self, dt: float):
+        # Rotate anchor points from local to world space
+        r_A = self.body_A.pose.transformDirection(self.localPoint_A)
+        r_B = self.body_B.pose.transformDirection(self.localPoint_B)
+
+        axis_A = self.body_A.pose.transformDirection(self.localAxis_A)
+        normal_A = Vec2(-axis_A.y, axis_A.x)
+        c_init = normal_A.T @ (self.body_A.pose.origin + r_A - (self.body_B.pose.origin + r_B))
+
+        # C = normal_A^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
+        # J = [ normal_A^T, (r_A x normal_A)^T, -normal_A^T, -(r_B x normal_A)^T ]
+        self.jacobian = np.zeros((1, 6))
+        self.jacobian[0, 0:2] = normal_A
+        self.jacobian[0, 2] = cross22_2d(r_A, normal_A)
+        self.jacobian[0, 3:5] = -normal_A
+        self.jacobian[0, 5] = -cross22_2d(r_B, normal_A)
+
+        self.generic_velocity = get_generic_velocity(self.body_A, self.body_B)
+        self.generic_external_impulse = get_generic_external_impulse(self.body_A, self.body_B, dt)
+
+        erp = 0.2
+        self.bias = erp / dt * c_init
+
+    def warm_up(self):
+        warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() @ self.applied_impulse_magnitude
+
+        add_back_generic_delta_velocity(self.body_A, self.body_B, warm_start_delta_velocity)
+
+    def iteration(self, is_positional_iteration: bool):
+        generic_delta_velocity = get_generic_delta_velocity(self.body_A, self.body_B)
+
+        if is_positional_iteration:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = np.linalg.inv(effective_mass) @ rhs
+        impulse = self.jacobian.transpose() @ lamdba_
+
+        if not is_positional_iteration:
+            self.applied_impulse_magnitude += lamdba_
+
+        generic_delta_velocity_addition = self.generic_inv_mass @ impulse
+
+        add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
+
+
+class PrismaticConstraint2d_AngularPart:
+    def __init__(self, body_A: Body2d, body_B: Body2d, 
+        localAxis_A: Vec2, localAxis_B: Vec2):
+
+        self.body_A = body_A
+        self.body_B = body_B
+        self.localAxis_A = localAxis_A
+        self.localAxis_B = localAxis_B
+        self.applied_impulse_magnitude = np.zeros((1, 1))
+        self.generic_inv_mass = get_generic_inverse_mass(body_A, body_B)
+    
+    def warm_up(self):
+        warm_start_delta_velocity = self.generic_inv_mass @ self.jacobian.transpose() @ self.applied_impulse_magnitude
+
+        add_back_generic_delta_velocity(self.body_A, self.body_B, warm_start_delta_velocity)
+
+    def setup(self, dt: float):
+        
+        c_init = self.body_A.pose.transformDirection(self.localAxis_A) - self.body_B.pose.transformDirection(self.localAxis_B)
+
+        # C = ω_A - ω_B in R
+        # J = [ 0_2, I, 0_2, -I ] in R^6
+        self.jacobian = np.zeros((1, 6))
+        self.jacobian[0, 2] = 1.0
+        self.jacobian[0, 5] = -1.0
+
+        self.generic_velocity = get_generic_velocity(self.body_A, self.body_B)
+        self.generic_external_impulse = get_generic_external_impulse(self.body_A, self.body_B, dt)
+
+        erp = 0.2
+        self.bias = erp / dt * c_init
+
+    def iteration(self, is_positional_iteration: bool):
+        generic_delta_velocity = get_generic_delta_velocity(self.body_A, self.body_B)
+
+        if is_positional_iteration:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse) - self.bias
+        else:
+            rhs = -self.jacobian @ (self.generic_velocity + generic_delta_velocity + self.generic_external_impulse)
+
+        effective_mass = self.jacobian @ self.generic_inv_mass @ self.jacobian.transpose()
+        lamdba_ = solve_gauss_seidel(effective_mass, rhs)
+        impulse = self.jacobian.transpose() @ lamdba_
+
+        if not is_positional_iteration:
+            self.applied_impulse_magnitude += lamdba_
+
+        generic_delta_velocity_addition = self.generic_inv_mass @ impulse
+
+        add_back_generic_delta_velocity(self.body_A, self.body_B, generic_delta_velocity_addition)
+
+
 class Scene2d:
     def __init__(self):
         self.gravity = Vec2(0.0, -10.0)
         self.bodies = []
         self.last_delta_time = None
         self.persistent_constraints = []
-        self.position_iterations = 1
+        self.position_iterations = 3
         self.velocity_iterations = 1
 
     def set_gravity(self, f: Vec2):
@@ -294,8 +407,8 @@ class Scene2d:
             if body.mass != float('inf'):
                 body.apply_force(self.gravity * body.mass, body.pose.origin)
     
-    def add_pin_constraint(self, body_A: Body2d, body_B: Body2d, anchor_A: Vec2, anchor_B: Vec2):
-        self.persistent_constraints.append(PinConstraint2d(body_A, body_B, anchor_A, anchor_B))
+    def add_pin_constraint(self, body_A: Body2d, body_B: Body2d, anchorInWorld_A: Vec2, anchorInWorld_B: Vec2):
+        self.persistent_constraints.append(PinConstraint2d(body_A, body_B, anchorInWorld_A, anchorInWorld_B))
     
     def add_spring_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
         self.persistent_constraints.append(SpringConstraint2d(body_A, body_B, point_A, point_B, stiffness, damping))
@@ -303,6 +416,14 @@ class Scene2d:
     def add_angular_spring_constraint(self, body_A: Body2d, body_B: Body2d, point_A: Vec2, point_B: Vec2, stiffness: float, damping: float):
         self.persistent_constraints.append(AngularSpringConstraint2d(body_A, body_B, point_A, point_B, stiffness, damping))
     
+    def add_prismatic_constraint(self, body_A: Body2d, body_B: Body2d, pointInWorld_A: Vec2, axisInWorld_A: Vec2, pointInWorld_B: Vec2, axisInWorld_B: Vec2):
+        localPoint_A = body_A.pose.inverse().transformPosition(pointInWorld_A)
+        localPoint_B = body_B.pose.inverse().transformPosition(pointInWorld_B)
+        localAxis_A = body_A.pose.inverse().transformDirection(axisInWorld_A)
+        localAxis_B = body_B.pose.inverse().transformDirection(axisInWorld_B)
+        self.persistent_constraints.append(PrismaticConstraint2d_LinearPart(body_A, body_B, localPoint_A, localAxis_A, localPoint_B))
+        self.persistent_constraints.append(PrismaticConstraint2d_AngularPart(body_A, body_B, localAxis_A, localAxis_B))
+
     def post_position_iteration(self, dt: float):
         for body in self.bodies:
             new_linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass * body.total_force * dt

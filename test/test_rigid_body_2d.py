@@ -307,11 +307,28 @@ def test_angular_spring_constraint_0():
         scene.step_simulation(1.0 / 60)
         renderer.render()  
 
+def test_prismatic_constraint_0():
+    scene = Scene2d()
+    
+    box1 = Body2d(mass=float('inf'), inertia=float('inf'), pose=Transform2d(Vec2(0.0, 0.0), 0.0), geometry=Rectangle(Vec2(2.0, 0.1)))
+    scene.add_body(box1)
+
+    box2 = Body2d(mass=1.0, inertia=2.0 / 3, pose=Transform2d(Vec2(0.0, 0.0), 0.0), geometry=Rectangle(Vec2(2.0, 0.1)))
+    scene.add_body(box2)
+
+    scene.add_prismatic_constraint(box1, box2, Vec2(0.0, 0.0), Vec2(1.0, 0.0), Vec2(0.0, 0.0), Vec2(1.0, 0.0))
+
+    renderer = Scene2dDebugRenderer(scene, width=800, height=600)
+    renderer.renderer.set_camera(eye=np.array([0.0, 0.0, -10.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 1.0, 0.0]))
+
+    start_time = time.time()
+    while renderer.is_running():
+        t = time.time() - start_time
+        box2.apply_force(force=10.0 * Vec2(np.cos(t), np.sin(t)), point=Vec2(10.0, 0.0))
+        scene.step_simulation(1.0 / 60)
+        renderer.render()  
+
+
+
 if __name__ == "__main__":
-    # test_contact_constraint_2()
-    # test_distance_constraint_chain_vertical()
-    # test_distance_constraint_chain_horizontal()
-    # test_pin_constraint_chain()
-    # test_spring_constraint_0()
-    # test_spring_constraint_1()
-    test_angular_spring_constraint_0()
+    test_prismatic_constraint_0()

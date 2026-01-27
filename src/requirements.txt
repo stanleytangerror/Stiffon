@@ -1,3 +1,5 @@
 taichi>=1.7.4
 numpy>=1.21.0
 scipy>=1.15.0
+jax>=0.6.2
+pygame>=2.0.0
