@@ -135,3 +135,129 @@ impl<T: FloatNum> Cross<Vec2<T>> for T {
     }
 }
 //#endregion
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f64 = 1e-10;
+
+    fn approx_eq(a: f64, b: f64) -> bool {
+        (a - b).abs() < EPS
+    }
+
+    fn vec2_approx_eq(a: Vec2<f64>, b: Vec2<f64>) -> bool {
+        approx_eq(a.x, b.x) && approx_eq(a.y, b.y)
+    }
+
+    // --- FloatNum ---
+    #[test]
+    fn float_num_f64_constants() {
+        assert_eq!(f64::ZERO, 0.0);
+        assert_eq!(f64::ONE, 1.0);
+    }
+
+    #[test]
+    fn float_num_f32_constants() {
+        assert_eq!(f32::ZERO, 0.0_f32);
+        assert_eq!(f32::ONE, 1.0_f32);
+    }
+
+    // --- Vec2 constructors & ZERO ---
+    #[test]
+    fn vec2_new_and_zero() {
+        let v = Vec2::new(3.0, 4.0);
+        assert_eq!(v.x, 3.0);
+        assert_eq!(v.y, 4.0);
+        assert_eq!(Vec2::<f64>::ZERO.x, 0.0);
+        assert_eq!(Vec2::<f64>::ZERO.y, 0.0);
+    }
+
+    // --- Vec2::norm ---
+    #[test]
+    fn vec2_norm() {
+        assert!(approx_eq(Vec2::new(3.0, 4.0).norm(), 5.0));
+        assert!(approx_eq(Vec2::new(0.0, 0.0).norm(), 0.0));
+        assert!(approx_eq(Vec2::new(1.0, 0.0).norm(), 1.0));
+    }
+
+    // --- Vec2::rotate ---
+    #[test]
+    fn vec2_rotate_90() {
+        let v = Vec2::new(1.0, 0.0);
+        let r = v.rotate(std::f64::consts::FRAC_PI_2);
+        assert!(vec2_approx_eq(r, Vec2::new(0.0, 1.0)));
+    }
+
+    #[test]
+    fn vec2_rotate_identity() {
+        let v = Vec2::new(1.0, 2.0);
+        let r = v.rotate(0.0);
+        assert!(vec2_approx_eq(r, v));
+    }
+
+    // --- Add / Sub / Neg ---
+    #[test]
+    fn vec2_add_sub_neg() {
+        let a = Vec2::new(1.0, 2.0);
+        let b = Vec2::new(3.0, 4.0);
+        assert!(vec2_approx_eq(a + b, Vec2::new(4.0, 6.0)));
+        assert!(vec2_approx_eq(b - a, Vec2::new(2.0, 2.0)));
+        assert!(vec2_approx_eq(-a, Vec2::new(-1.0, -2.0)));
+    }
+
+    // --- AddAssign / SubAssign / MulAssign ---
+    #[test]
+    fn vec2_assign_ops() {
+        let mut v = Vec2::new(1.0, 2.0);
+        v += Vec2::new(1.0, 1.0);
+        assert!(vec2_approx_eq(v, Vec2::new(2.0, 3.0)));
+        v -= Vec2::new(0.0, 1.0);
+        assert!(vec2_approx_eq(v, Vec2::new(2.0, 2.0)));
+        v *= 2.0;
+        assert!(vec2_approx_eq(v, Vec2::new(4.0, 4.0)));
+    }
+
+    // --- Mul scalar ---
+    #[test]
+    fn vec2_mul_scalar() {
+        let v = Vec2::new(1.0, 2.0);
+        assert!(vec2_approx_eq(v * 3.0, Vec2::new(3.0, 6.0)));
+    }
+
+    // --- Dot ---
+    #[test]
+    fn vec2_dot() {
+        let a = Vec2::new(1.0, 0.0);
+        let b = Vec2::new(1.0, 0.0);
+        assert!(approx_eq(a.dot(b), 1.0));
+        let c = Vec2::new(3.0, 4.0);
+        assert!(approx_eq(a.dot(c), 3.0));
+        assert!(approx_eq(c.dot(c), 25.0));
+    }
+
+    // --- Cross (Vec2 x Vec2 -> scalar) ---
+    #[test]
+    fn vec2_cross_vec2() {
+        let a = Vec2::new(1.0, 0.0);
+        let b = Vec2::new(0.0, 1.0);
+        assert!(approx_eq(a.cross(b), 1.0));
+        assert!(approx_eq(b.cross(a), -1.0));
+    }
+
+    // --- Cross (Vec2 x T -> Vec2) ---
+    #[test]
+    fn vec2_cross_scalar() {
+        let v = Vec2::new(1.0, 0.0);
+        let r = v.cross(2.0);
+        assert!(vec2_approx_eq(r, Vec2::new(0.0, -2.0)));
+    }
+
+    // --- Cross (T x Vec2 -> Vec2) ---
+    #[test]
+    fn scalar_cross_vec2() {
+        let v = Vec2::new(1.0, 0.0);
+        let r = 2.0_f64.cross(v);
+        assert!(vec2_approx_eq(r, Vec2::new(0.0, 2.0)));
+    }
+}
