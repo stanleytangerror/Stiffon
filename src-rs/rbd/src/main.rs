@@ -5,6 +5,7 @@ use math::Cross;
 use ndarray::Array2;
 
 type Vec2 = math::Vec2<f64>;
+type Transform2d = math::Transform2d<f64>;
 
 /// 2×6 矩阵，基于 ndarray
 pub type Mat2x6 = Array2<f64>;
@@ -22,35 +23,6 @@ pub fn mat6x6_zeros() -> Mat6x6 {
     Array2::zeros((6, 6))
 }
 
-// --- Transform2d ---
-#[derive(Clone, Copy, Debug)]
-struct Transform2d {
-    origin: Vec2,
-    angle: f64,
-}
-
-impl Transform2d {
-    const fn new(origin: Vec2, angle: f64) -> Self {
-        Transform2d { origin, angle }
-    }
-
-    fn invert(&self) -> Transform2d {
-        Transform2d {
-            origin: -self.origin.rotate(-self.angle),
-            angle: -self.angle,
-        }
-    }
-}
-
-impl std::ops::Mul<Transform2d> for Transform2d {
-    type Output = Transform2d;
-    fn mul(self, rhs: Transform2d) -> Transform2d {
-        Transform2d {
-            origin: rhs.origin.rotate(self.angle) + self.origin,
-            angle: self.angle + rhs.angle,
-        }
-    }
-}
 
 // --- Geometry ---
 #[derive(Clone, Debug)]
@@ -75,12 +47,14 @@ struct Body2d {
     inertia: f64,
     inv_inertia: f64,
     inv_inertia_world: f64,
-    linear_velocity: Vec2,
-    angular_velocity: f64,
+    v: Vec2,
+    𝜔: f64,
+    delta_v: Vec2,
+    delta_𝜔: f64,
     pose: Transform2d,
     geometry: Geometry,
-    total_force: Vec2,
-    total_torque: f64,
+    f_ext: Vec2,
+    τ_ext: f64,
     delta_linear_velocity: Vec2,
     delta_angular_velocity: f64,
 }
@@ -107,8 +81,8 @@ impl Body2d {
     fn new(
         mass: f64,
         inertia: f64,
-        linear_velocity: Vec2,
-        angular_velocity: f64,
+        v: Vec2,
+        𝜔: f64,
         pose: Transform2d,
         geometry: Geometry,
     ) -> Self {
@@ -120,22 +94,37 @@ impl Body2d {
             inertia,
             inv_inertia,
             inv_inertia_world: inv_inertia,
-            linear_velocity,
-            angular_velocity,
+            v,
+            𝜔,
+            delta_v: Vec2::ZERO,
+            delta_𝜔: 0.0,
             pose,
             geometry,
-            total_force: Vec2::ZERO,
-            total_torque: 0.0,
+            f_ext: Vec2::ZERO,
+            τ_ext: 0.0,
             delta_linear_velocity: Vec2::ZERO,
             delta_angular_velocity: 0.0,
         }
     }
 
     /// Apply a force at a point. In 2D, torque is a scalar (cross product z-component).
-    fn apply_force(&mut self, force: Vec2, point: Vec2) {
-        self.total_force += force;
-        let r = point - self.pose.origin;
-        self.total_torque += r.cross(force);
+    fn apply_local_force(&mut self, f: Vec2, p: Vec2) {
+        let f_ws = self.pose.transform_vector(f);
+        let r = self.pose.transform_vector(p);
+        self.f_ext += f_ws;
+        self.τ_ext += r.cross(f_ws);
+    }
+
+    fn post_solve(&mut self, dt: f64) {
+        let v_new = self.v + self.delta_v + self.f_ext * self.inv_mass * dt;
+        let 𝜔_new = self.𝜔 + self.delta_𝜔 + self.inv_inertia_world * self.τ_ext * dt;
+
+        self.pose = Transform2d::new(
+            self.pose.origin + v_new * dt, 
+            self.pose.angle + 𝜔_new * dt);
+        
+        self.delta_v = Vec2::ZERO;
+        self.delta_𝜔 = 0.0;
     }
 }
 
@@ -149,8 +138,21 @@ impl Solver {
             bodies: Vec::new(),
         }
     }
+
     fn add_body(&mut self, body: Body2d) {
         self.bodies.push(body);
+    }
+
+    fn step(&mut self, dt: f64) {
+        for body in &mut self.bodies {
+            if body.inv_mass != 0.0 {
+                // body.apply_force(self.gravity * body.mass, body.pose.origin);
+            }
+        }
+
+        for body in &mut self.bodies {
+            body.post_solve(dt);
+        }
     }
 }
 
@@ -225,4 +227,6 @@ fn main() {
     let mut solver = Solver::new();
     solver.add_body(body);
     println!("{:?}", solver.bodies.len());
+    solver.step(1.0);
+    println!("{:?}", solver.bodies[0].pose);
 }

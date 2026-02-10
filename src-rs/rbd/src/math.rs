@@ -83,6 +83,7 @@ impl<T: FloatNum> std::ops::Mul<T> for Vec2<T> {
     }
 }
 
+
 impl<T: FloatNum + std::ops::MulAssign> std::ops::MulAssign<T> for Vec2<T> {
     fn mul_assign(&mut self, rhs: T) {
         self.x *= rhs;
@@ -135,6 +136,47 @@ impl<T: FloatNum> Cross<Vec2<T>> for T {
     }
 }
 //#endregion
+
+
+// --- Transform2d ---
+#[derive(Clone, Copy, Debug)]
+pub struct Transform2d<T> {
+    pub origin: Vec2<T>,
+    pub angle: T,
+}
+
+impl<T: FloatNum> Transform2d<T> {
+    pub const IDENTITY: Self = Transform2d { origin: Vec2::ZERO, angle: T::ZERO };
+
+    pub fn new(origin: Vec2<T>, angle: T) -> Self {
+        Transform2d::<T> { origin, angle }
+    }
+
+    pub fn invert(&self) -> Self {
+        Transform2d::<T> {
+            origin: -self.origin.rotate(-self.angle),
+            angle: -self.angle,
+        }
+    }
+
+    pub fn transform_vector(&self, v: Vec2<T>) -> Vec2<T> {
+        v.rotate(self.angle)
+    }
+
+    pub fn transform_position(&self, p: Vec2<T>) -> Vec2<T> {
+        p.rotate(self.angle) + self.origin
+    }
+}
+
+impl<T: FloatNum> std::ops::Mul<Transform2d<T>> for Transform2d<T> {
+    type Output = Transform2d::<T>;
+    fn mul(self, rhs: Transform2d<T>) -> Self::Output {
+        Transform2d::<T> {
+            origin: rhs.origin.rotate(self.angle) + self.origin,
+            angle: self.angle + rhs.angle,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -259,5 +301,69 @@ mod tests {
         let v = Vec2::new(1.0, 0.0);
         let r = 2.0_f64.cross(v);
         assert!(vec2_approx_eq(r, Vec2::new(0.0, 2.0)));
+    }
+
+    // --- Transform2d ---
+    fn transform2d_approx_eq(a: Transform2d<f64>, b: Transform2d<f64>) -> bool {
+        vec2_approx_eq(a.origin, b.origin) && approx_eq(a.angle, b.angle)
+    }
+
+    fn transform2d_identity() -> Transform2d<f64> {
+        Transform2d::new(Vec2::ZERO, 0.0)
+    }
+
+    #[test]
+    fn transform2d_new() {
+        let o = Vec2::new(1.0, 2.0);
+        let t = Transform2d::new(o, std::f64::consts::FRAC_PI_2);
+        assert!(vec2_approx_eq(t.origin, o));
+        assert!(approx_eq(t.angle, std::f64::consts::FRAC_PI_2));
+    }
+
+    #[test]
+    fn transform2d_identity_mul_left() {
+        let t = Transform2d::new(Vec2::new(3.0, 4.0), 0.5);
+        let id = transform2d_identity();
+        assert!(transform2d_approx_eq(id * t, t));
+    }
+
+    #[test]
+    fn transform2d_identity_mul_right() {
+        let t = Transform2d::new(Vec2::new(3.0, 4.0), 0.5);
+        let id = transform2d_identity();
+        assert!(transform2d_approx_eq(t * id, t));
+    }
+
+    #[test]
+    fn transform2d_invert_roundtrip() {
+        let t = Transform2d::new(Vec2::new(1.0, 2.0), 0.7);
+        let inv = t.invert();
+        assert!(transform2d_approx_eq(t * inv, transform2d_identity()));
+        assert!(transform2d_approx_eq(inv * t, transform2d_identity()));
+    }
+
+    #[test]
+    fn transform2d_invert_twice() {
+        let t = Transform2d::new(Vec2::new(-1.0, 3.0), std::f64::consts::PI);
+        assert!(transform2d_approx_eq(t.invert().invert(), t));
+    }
+
+    #[test]
+    fn transform2d_mul_composition() {
+        let a = Transform2d::new(Vec2::new(1.0, 0.0), 0.0);
+        let b = Transform2d::new(Vec2::new(0.0, 1.0), std::f64::consts::FRAC_PI_2);
+        let ab = a * b;
+        // a * b: first apply b (translate (0,1) then rotate 90°), then a (translate (1,0))
+        // ab.origin = b.origin.rotate(a.angle) + a.origin = (0,1).rotate(0) + (1,0) = (1,1)
+        assert!(vec2_approx_eq(ab.origin, Vec2::new(1.0, 1.0)));
+        assert!(approx_eq(ab.angle, std::f64::consts::FRAC_PI_2));
+    }
+
+    #[test]
+    fn transform2d_mul_associativity() {
+        let a = Transform2d::new(Vec2::new(1.0, 0.0), 0.3);
+        let b = Transform2d::new(Vec2::new(0.0, 1.0), 0.5);
+        let c = Transform2d::new(Vec2::new(2.0, -1.0), -0.2);
+        assert!(transform2d_approx_eq((a * b) * c, a * (b * c)));
     }
 }
