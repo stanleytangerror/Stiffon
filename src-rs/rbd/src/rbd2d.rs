@@ -3,28 +3,8 @@
 #![allow(unused)]
 
 use std::f64;
-use ndarray::Array2;
-use crate::math::Cross;
-
-pub type Vec2 = crate::math::TVec2<f64>;
-pub type Transform2d = crate::math::TTransform2d<f64>;
-
-/// 2×6 矩阵，基于 ndarray
-pub type Mat2x6 = Array2<f64>;
-
-/// 构造 2×6 零矩阵
-pub fn mat2x6_zeros() -> Mat2x6 {
-    Array2::zeros((2, 6))
-}
-
-/// 6×6 矩阵，基于 ndarray
-pub type Mat6x6 = Array2<f64>;
-
-/// 构造 6×6 零矩阵
-pub fn mat6x6_zeros() -> Mat6x6 {
-    Array2::zeros((6, 6))
-}
-
+use crate::math::*;
+use crate::vec;
 
 // --- Geometry ---
 #[derive(Clone, Debug)]
@@ -151,7 +131,7 @@ impl Solver {
     pub fn new() -> Self {
         Solver {
             bodies: Vec::new(),
-            gravity: Vec2::new(0.0, -9.8),
+            gravity: vec!(0.0, -9.8),
         }
     }
 
