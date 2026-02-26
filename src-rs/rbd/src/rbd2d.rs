@@ -4,7 +4,7 @@
 
 use std::f64;
 use crate::math::*;
-use crate::vec;
+use crate::mvec;
 
 // --- Geometry ---
 #[derive(Clone, Debug)]
@@ -131,7 +131,7 @@ impl Solver {
     pub fn new() -> Self {
         Solver {
             bodies: Vec::new(),
-            gravity: vec!(0.0, -9.8),
+            gravity: mvec!(0.0, -9.8),
         }
     }
 

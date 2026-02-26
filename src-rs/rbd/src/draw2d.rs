@@ -1,44 +1,62 @@
 #![allow(unused)]
 
-use crate::rbd2d::{Solver, Geometry, Vec2, Transform2d};
+use crate::math::*;
+use crate::rbd2d::*;
 use macroquad::prelude as mq;
 
 pub struct Camera2d {
-    pub position: Vec2,
-    pub right: Vec2,
-    pub up: Vec2,
+    // world -> camera
+    pub transform: Transform2d,
 
-    pub aspect_ratio: f32,
-    pub scale: f32,
+    // camera -> ndc
+    pub aspect_ratio: f64,
+    pub width: f64,
+
+    // ndc -> pixel
+    pub pixel_size: Vec2,
+
+    world_to_screen_mat: Mat33,
 }
 
 impl Camera2d {
-    pub fn new(transform: Transform2d, aspect_ratio: f32, scale: f32) -> Self {
-        Camera2d { transform, aspect_ratio, scale }
+    pub fn new(position: Vec2, up: Vec2, aspect_ratio: f64, width: f64, pixel_size: Vec2) -> Self {
+        let angle = up.y().atan2(up.x());
+        let transform = Transform2d::new(position, angle);
+        let mut camera = Camera2d { transform, aspect_ratio, width, pixel_size, world_to_screen_mat: Mat33::identity() };
+        camera.on_changed();
+        camera
     }
 
-    pub fn world_to_screen(&self, world: Vec2) -> Vec2 {
-        let screen = self.transform.transform_vector(world);
-        screen * self.scale
+    pub fn world_to_screen(&self, p: Vec2) -> Vec2 {
+        let pn = Vec3::new([p.x(), p.y(), 1.0]);
+        let pn_ndc = self.world_to_screen_mat * pn;
+        Vec2::new([pn_ndc.x() * self.pixel_size.x(), pn_ndc.y() * self.pixel_size.y()])
     }
 
-    fn camera_matrix(&self) -> Mat4 {
-
-    }
-}
-
-pub fn draw_solver(solver: &Solver) {
-    for body in solver.bodies() {
-        let geometry = body.geometry();
-        let pose = body.pose();
-
-        match geometry {
-            Geometry::Rectangle { half_extents } => {
-                mq::draw_rectangle(pose.origin, half_extents.x, half_extents.y);
-            }
-            Geometry::Circle { radius } => {
-                mq::draw_circle(pose.origin, radius);
-            }
-        }
+    fn on_changed(&mut self) {
+        let camera_mat = self.transform.as_mat33();
+        let proj_mat = proj_mat_2d(self.aspect_ratio, self.width);
+        let pixel_mat = Mat33::from_cols([
+            TVec3::new([self.pixel_size.x(), T::ZERO, T::ZERO]),
+            TVec3::new([T::ZERO, self.pixel_size.y(), T::ZERO]),
+            TVec3::new([T::ZERO, T::ZERO, T::ONE]),
+        ]);
+        self.world_to_screen_mat = pixel_mat * proj_mat * camera_mat;
     }
 }
+
+// pub fn draw_solver(solver: &Solver) {
+//     for body in solver.bodies() {
+//         let geometry = body.geometry();
+//         let pose = body.pose();
+
+//         match geometry {
+//             Geometry::Rectangle { half_extents } => {
+//                 mq::draw_rectangle(pose.origin, half_extents.x, half_extents.y);
+//             }
+//             Geometry::Circle { radius } => {
+//                 mq::draw_circle(pose.origin, radius);
+//             }
+//         }
+//     }
+// }

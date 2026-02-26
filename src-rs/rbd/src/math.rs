@@ -34,9 +34,9 @@ pub type TVec2<T> = TVec<T, 2>;
 pub type TVec3<T> = TVec<T, 3>;
 pub type TVec4<T> = TVec<T, 4>;
 
-/// 不定个参数构造向量，例如：`vec!(1.0, 2.0)`、`vec!(1.0, 2.0, 3.0)`。
+/// 不定个参数构造向量，例如：`mvec!(1.0, 2.0)`、`mvec!(1.0, 2.0, 3.0)`。
 #[macro_export]
-macro_rules! vec {
+macro_rules! mvec {
     ($($x:expr),* $(,)?) => {
         $crate::math::TVec { data: [$($x),*] }
     };
@@ -163,10 +163,10 @@ pub trait Dot<RHS> {
     fn dot(self, rhs: RHS) -> Self::Output;
 }
 
-impl<T: FloatNum> Dot<TVec<T, 2>> for TVec<T, 2> {
+impl<T: FloatNum, const D: usize> Dot<TVec<T, D>> for TVec<T, D> {
     type Output = T;
-    fn dot(self, rhs: TVec<T, 2>) -> Self::Output {
-        self.x() * rhs.x() + self.y() * rhs.y()
+    fn dot(self, rhs: TVec<T, D>) -> Self::Output {
+        self.data.iter().zip(rhs.data.iter()).map(|(a, b)| *a * *b).sum()
     }
 }
 
@@ -212,8 +212,26 @@ impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
         TMat { cols: cols }
     }
 
+    pub fn from_rows(rows: [TVec<T, C>; R]) -> Self {
+        let mut cols = [TVec::<T, R>::new([T::ZERO; R]); C];
+        for i in 0..R {
+            for j in 0..C {
+                cols[j].data[i] = rows[i].data[j];
+            }
+        }
+        TMat::from_cols(cols)
+    }
+
     pub fn zeros() -> Self {
         TMat::from_cols([TVec::<T, R>::new([T::ZERO; R]); C])
+    }
+
+    pub fn row(&self, i: usize) -> TVec<T, C> {
+        TVec::<T, C>::new(std::array::from_fn(|j| self.cols[j].data[i]))
+    }
+
+    pub fn col(&self, j: usize) -> TVec<T, R> {
+        self.cols[j]
     }
 }
 
@@ -223,6 +241,21 @@ impl<T: FloatNum, const D: usize> TMat<T, D, D> {
         let mut cols = [TVec::<T, D>::new([T::ZERO; D]); D];
         for j in 0..D {
             cols[j].data[j] = T::ONE;
+        }
+        TMat::from_cols(cols)
+    }
+}
+
+impl<T: FloatNum, const R1: usize, const C1: usize, const N: usize> std::ops::Mul<TMat<T, C1, N>> for TMat<T, R1, C1> {
+    
+    type Output = TMat<T, R1, N>;
+    
+    fn mul(self, rhs: TMat<T, C1, N>) -> Self::Output {
+        let mut cols = [TVec::<T, R1>::new([T::ZERO; R1]); N];
+        for i in 0..R1 {
+            for j in 0..N {
+                cols[j].data[i] = self.row(i).dot(rhs.col(j));
+            }
         }
         TMat::from_cols(cols)
     }
@@ -242,7 +275,7 @@ impl<T: FloatNum> TTransform2d<T> {
         TTransform2d::<T> { origin, angle }
     }
 
-    pub fn invert(&self) -> Self {
+    pub fn inv(&self) -> Self {
         TTransform2d::<T> {
             origin: -self.origin.rotate(-self.angle),
             angle: -self.angle,
@@ -255,6 +288,16 @@ impl<T: FloatNum> TTransform2d<T> {
 
     pub fn transform_position(&self, p: TVec2<T>) -> TVec2<T> {
         p.rotate(self.angle) + self.origin
+    }
+
+    pub fn as_mat33(&self) -> TMat33<T> {
+        let c = self.angle.cos();
+        let s = self.angle.sin();
+        TMat33::from_rows([
+            TVec3::new([c, -s, T::ZERO]),
+            TVec3::new([s, c, T::ZERO]),
+            TVec3::new([T::ZERO, T::ZERO, T::ONE]),
+        ])
     }
 }
 
@@ -279,6 +322,15 @@ pub type Mat44 = TMat44<f64>;
 pub type Transform2d = TTransform2d<f64>;
 //#endregion
 
+pub fn proj_mat_2d<T: FloatNum>(aspect_ratio: T, width: T) -> TMat33<T> {
+    let two = T::from(2).unwrap();
+    TMat33::from_rows([
+        TVec3::new([two * aspect_ratio / width, T::ZERO, T::ZERO]),
+        TVec3::new([T::ZERO, two / width, T::ZERO]),
+        TVec3::new([T::ZERO, T::ZERO, T::ONE]),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,6 +350,7 @@ mod tests {
     fn float_num_f64_constants() {
         assert_eq!(f64::ZERO, 0.0);
         assert_eq!(f64::ONE, 1.0);
+        assert_eq!(5.0.cos(), std::f64::consts::FRAC_PI_2);
     }
 
     #[test]
@@ -309,7 +362,7 @@ mod tests {
     // --- TVec2 constructors & ZERO ---
     #[test]
     fn vec2_new_and_zero() {
-        let v = vec!(3.0, 4.0);
+        let v = mvec!(3.0, 4.0);
         assert_eq!(v.x(), 3.0);
         assert_eq!(v.y(), 4.0);
         assert_eq!(TVec2::<f64>::ZERO.x(), 0.0);
@@ -319,22 +372,22 @@ mod tests {
     // --- TVec2::norm ---
     #[test]
     fn vec2_norm() {
-        assert!(approx_eq(vec!(3.0, 4.0).norm(), 5.0));
-        assert!(approx_eq(vec!(0.0, 0.0).norm(), 0.0));
-        assert!(approx_eq(vec!(1.0, 0.0).norm(), 1.0));
+        assert!(approx_eq(mvec!(3.0, 4.0).norm(), 5.0));
+        assert!(approx_eq(mvec!(0.0, 0.0).norm(), 0.0));
+        assert!(approx_eq(mvec!(1.0, 0.0).norm(), 1.0));
     }
 
     // --- TVec2::rotate ---
     #[test]
     fn vec2_rotate_90() {
-        let v = vec!(1.0, 0.0);
+        let v = mvec!(1.0, 0.0);
         let r = v.rotate(std::f64::consts::FRAC_PI_2);
-        assert!(vec2_approx_eq(r, vec!(0.0, 1.0)));
+        assert!(vec2_approx_eq(r, mvec!(0.0, 1.0)));
     }
 
     #[test]
     fn vec2_rotate_identity() {
-        let v = vec!(1.0, 2.0);
+        let v = mvec!(1.0, 2.0);
         let r = v.rotate(0.0);
         assert!(vec2_approx_eq(r, v));
     }
@@ -342,39 +395,39 @@ mod tests {
     // --- Add / Sub / Neg ---
     #[test]
     fn vec2_add_sub_neg() {
-        let a = vec!(1.0, 2.0);
-        let b = vec!(3.0, 4.0);
-        assert!(vec2_approx_eq(a + b, vec!(4.0, 6.0)));
-        assert!(vec2_approx_eq(b - a, vec!(2.0, 2.0)));
-        assert!(vec2_approx_eq(-a, vec!(-1.0, -2.0)));
+        let a = mvec!(1.0, 2.0);
+        let b = mvec!(3.0, 4.0);
+        assert!(vec2_approx_eq(a + b, mvec!(4.0, 6.0)));
+        assert!(vec2_approx_eq(b - a, mvec!(2.0, 2.0)));
+        assert!(vec2_approx_eq(-a, mvec!(-1.0, -2.0)));
     }
 
     // --- AddAssign / SubAssign / MulAssign ---
     #[test]
     fn vec2_assign_ops() {
-        let mut v = vec!(1.0, 2.0);
-        v += vec!(1.0, 1.0);
-        assert!(vec2_approx_eq(v, vec!(2.0, 3.0)));
-        v -= vec!(0.0, 1.0);
-        assert!(vec2_approx_eq(v, vec!(2.0, 2.0)));
+        let mut v = mvec!(1.0, 2.0);
+        v += mvec!(1.0, 1.0);
+        assert!(vec2_approx_eq(v, mvec!(2.0, 3.0)));
+        v -= mvec!(0.0, 1.0);
+        assert!(vec2_approx_eq(v, mvec!(2.0, 2.0)));
         v *= 2.0;
-        assert!(vec2_approx_eq(v, vec!(4.0, 4.0)));
+        assert!(vec2_approx_eq(v, mvec!(4.0, 4.0)));
     }
 
     // --- Mul scalar ---
     #[test]
     fn vec2_mul_scalar() {
-        let v = vec!(1.0, 2.0);
-        assert!(vec2_approx_eq(v * 3.0, vec!(3.0, 6.0)));
+        let v = mvec!(1.0, 2.0);
+        assert!(vec2_approx_eq(v * 3.0, mvec!(3.0, 6.0)));
     }
 
     // --- Dot ---
     #[test]
     fn vec2_dot() {
-        let a = vec!(1.0, 0.0);
-        let b = vec!(1.0, 0.0);
+        let a = mvec!(1.0, 0.0);
+        let b = mvec!(1.0, 0.0);
         assert!(approx_eq(a.dot(b), 1.0));
-        let c = vec!(3.0, 4.0);
+        let c = mvec!(3.0, 4.0);
         assert!(approx_eq(a.dot(c), 3.0));
         assert!(approx_eq(c.dot(c), 25.0));
     }
@@ -382,8 +435,8 @@ mod tests {
     // --- Cross (TVec2 x TVec2 -> scalar) ---
     #[test]
     fn vec2_cross_vec2() {
-        let a = vec!(1.0, 0.0);
-        let b = vec!(0.0, 1.0);
+        let a = mvec!(1.0, 0.0);
+        let b = mvec!(0.0, 1.0);
         assert!(approx_eq(a.cross(b), 1.0));
         assert!(approx_eq(b.cross(a), -1.0));
     }
@@ -391,17 +444,17 @@ mod tests {
     // --- Cross (TVec2 x T -> TVec2) ---
     #[test]
     fn vec2_cross_scalar() {
-        let v = vec!(1.0, 0.0);
+        let v = mvec!(1.0, 0.0);
         let r = v.cross(2.0);
-        assert!(vec2_approx_eq(r, vec!(0.0, -2.0)));
+        assert!(vec2_approx_eq(r, mvec!(0.0, -2.0)));
     }
 
     // --- Cross (T x TVec2 -> TVec2) ---
     #[test]
     fn scalar_cross_vec2() {
-        let v = vec!(1.0, 0.0);
+        let v = mvec!(1.0, 0.0);
         let r = 2.0_f64.cross(v);
-        assert!(vec2_approx_eq(r, vec!(0.0, 2.0)));
+        assert!(vec2_approx_eq(r, mvec!(0.0, 2.0)));
     }
 
     // --- TTransform2d ---
@@ -415,7 +468,7 @@ mod tests {
 
     #[test]
     fn transform2d_new() {
-        let o = vec!(1.0, 2.0);
+        let o = mvec!(1.0, 2.0);
         let t = TTransform2d::new(o, std::f64::consts::FRAC_PI_2);
         assert!(vec2_approx_eq(t.origin, o));
         assert!(approx_eq(t.angle, std::f64::consts::FRAC_PI_2));
@@ -423,48 +476,48 @@ mod tests {
 
     #[test]
     fn transform2d_identity_mul_left() {
-        let t = TTransform2d::new(vec!(3.0, 4.0), 0.5);
+        let t = TTransform2d::new(mvec!(3.0, 4.0), 0.5);
         let id = transform2d_identity();
         assert!(transform2d_approx_eq(id * t, t));
     }
 
     #[test]
     fn transform2d_identity_mul_right() {
-        let t = TTransform2d::new(vec!(3.0, 4.0), 0.5);
+        let t = TTransform2d::new(mvec!(3.0, 4.0), 0.5);
         let id = transform2d_identity();
         assert!(transform2d_approx_eq(t * id, t));
     }
 
     #[test]
     fn transform2d_invert_roundtrip() {
-        let t = TTransform2d::new(vec!(1.0, 2.0), 0.7);
-        let inv = t.invert();
+        let t = TTransform2d::new(mvec!(1.0, 2.0), 0.7);
+        let inv = t.inv();
         assert!(transform2d_approx_eq(t * inv, transform2d_identity()));
         assert!(transform2d_approx_eq(inv * t, transform2d_identity()));
     }
 
     #[test]
     fn transform2d_invert_twice() {
-        let t = TTransform2d::new(vec!(-1.0, 3.0), std::f64::consts::PI);
-        assert!(transform2d_approx_eq(t.invert().invert(), t));
+        let t = TTransform2d::new(mvec!(-1.0, 3.0), std::f64::consts::PI);
+        assert!(transform2d_approx_eq(t.inv().inv(), t));
     }
 
     #[test]
     fn transform2d_mul_composition() {
-        let a = TTransform2d::new(vec!(1.0, 0.0), 0.0);
-        let b = TTransform2d::new(vec!(0.0, 1.0), std::f64::consts::FRAC_PI_2);
+        let a = TTransform2d::new(mvec!(1.0, 0.0), 0.0);
+        let b = TTransform2d::new(mvec!(0.0, 1.0), std::f64::consts::FRAC_PI_2);
         let ab = a * b;
         // a * b: first apply b (translate (0,1) then rotate 90°), then a (translate (1,0))
         // ab.origin = b.origin.rotate(a.angle) + a.origin = (0,1).rotate(0) + (1,0) = (1,1)
-        assert!(vec2_approx_eq(ab.origin, vec!(1.0, 1.0)));
+        assert!(vec2_approx_eq(ab.origin, mvec!(1.0, 1.0)));
         assert!(approx_eq(ab.angle, std::f64::consts::FRAC_PI_2));
     }
 
     #[test]
     fn transform2d_mul_associativity() {
-        let a = TTransform2d::new(vec!(1.0, 0.0), 0.3);
-        let b = TTransform2d::new(vec!(0.0, 1.0), 0.5);
-        let c = TTransform2d::new(vec!(2.0, -1.0), -0.2);
+        let a = TTransform2d::new(mvec!(1.0, 0.0), 0.3);
+        let b = TTransform2d::new(mvec!(0.0, 1.0), 0.5);
+        let c = TTransform2d::new(mvec!(2.0, -1.0), -0.2);
         assert!(transform2d_approx_eq((a * b) * c, a * (b * c)));
     }
 }
