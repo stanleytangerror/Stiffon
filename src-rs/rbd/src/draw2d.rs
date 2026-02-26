@@ -22,7 +22,7 @@ impl Camera2d {
     pub fn new(position: Vec2, up: Vec2, aspect_ratio: f64, width: f64, pixel_size: Vec2) -> Self {
         let angle = up.y().atan2(up.x());
         let transform = Transform2d::new(position, angle);
-        let mut camera = Camera2d { transform, aspect_ratio, width, pixel_size, world_to_screen_mat: Mat33::identity() };
+        let mut camera = Camera2d { transform, aspect_ratio, width, pixel_size, world_to_screen_mat: Mat33::eye() };
         camera.on_changed();
         camera
     }
@@ -36,10 +36,10 @@ impl Camera2d {
     fn on_changed(&mut self) {
         let camera_mat = self.transform.as_mat33();
         let proj_mat = proj_mat_2d(self.aspect_ratio, self.width);
-        let pixel_mat = Mat33::from_cols([
-            TVec3::new([self.pixel_size.x(), T::ZERO, T::ZERO]),
-            TVec3::new([T::ZERO, self.pixel_size.y(), T::ZERO]),
-            TVec3::new([T::ZERO, T::ZERO, T::ONE]),
+        let pixel_mat = Mat33::from_rows([
+            [self.pixel_size.x(), 0.0, 0.0],
+            [0.0, self.pixel_size.y(), 0.0],
+            [0.0, 0.0, 1.0],
         ]);
         self.world_to_screen_mat = pixel_mat * proj_mat * camera_mat;
     }

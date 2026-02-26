@@ -16,7 +16,7 @@ fn main() {
     let mut body = Body2d::new(
         1.0,
         1.0,
-        Vec2::ZERO,
+        Vec2::ZEROS,
         0.0,
         pose,
         geometry,

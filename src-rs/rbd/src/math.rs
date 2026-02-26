@@ -24,137 +24,190 @@ impl FloatNum for f32 {
 }
 //#endregion
 
-//#region TVec
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TVec<T: FloatNum, const D: usize> {
-    pub data: [T; D],
+pub struct TMat<T: FloatNum, const R: usize, const C: usize> {
+    pub cols: [[T; R]; C],
 }
 
-pub type TVec2<T> = TVec<T, 2>;
-pub type TVec3<T> = TVec<T, 3>;
-pub type TVec4<T> = TVec<T, 4>;
+pub type TMat22<T: FloatNum> = TMat<T, 2, 2>;
+pub type TMat33<T: FloatNum> = TMat<T, 3, 3>;
+pub type TMat44<T: FloatNum> = TMat<T, 4, 4>;
+pub type TVec<T: FloatNum, const N: usize> = TMat<T, N, 1>;
+pub type TVec2<T: FloatNum> = TVec<T, 2>;
+pub type TVec3<T: FloatNum> = TVec<T, 3>;
+pub type TVec4<T: FloatNum> = TVec<T, 4>;
+
+impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
+    pub const ZEROS: Self = TMat { cols: [[T::ZERO; R]; C] };
+    pub const ONES: Self = TMat { cols: [[T::ONE; R]; C] };
+}
+
+//#region TVec
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pub struct TVec<T: FloatNum, const D: usize> {
+//     pub data: [T; D],
+// }
+
+// pub type TVec2<T> = TVec<T, 2>;
+// pub type TVec3<T> = TVec<T, 3>;
+// pub type TVec4<T> = TVec<T, 4>;
 
 /// 不定个参数构造向量，例如：`mvec!(1.0, 2.0)`、`mvec!(1.0, 2.0, 3.0)`。
 #[macro_export]
 macro_rules! mvec {
     ($($x:expr),* $(,)?) => {
-        $crate::math::TVec { data: [$($x),*] }
+        $crate::math::TVec { cols: [[$($x),*]] }
     };
 }
 
 impl<T: FloatNum, const D: usize> TVec<T, D> {
     #[inline(always)]
     pub fn x(&self) -> T {
-        self.data[0]
+        self.cols[0][0]
     }
     #[inline(always)]
     pub fn y(&self) -> T {
-        self.data[1]
+        self.cols[0][1]
     }
     #[inline(always)]
     pub fn z(&self) -> T {
-        self.data[2]
+        self.cols[0][2]
     }
     #[inline(always)]
     pub fn w(&self) -> T {
-        self.data[3]
+        self.cols[0][3]
     }
     #[inline(always)]
     pub fn x_mut(&mut self) -> &mut T {
-        &mut self.data[0]
+        &mut self.cols[0][0]
     }
     #[inline(always)]
     pub fn y_mut(&mut self) -> &mut T {
-        &mut self.data[1]
+        &mut self.cols[0][1]
     }
     #[inline(always)]
     pub fn z_mut(&mut self) -> &mut T {
-        &mut self.data[2]
+        &mut self.cols[0][2]
     }
     #[inline(always)]
     pub fn w_mut(&mut self) -> &mut T {
-        &mut self.data[3]
+        &mut self.cols[0][3]
     }
 }
 
-impl<T: FloatNum, const D: usize> TVec<T, D> {
-    pub const ZERO: Self = TVec { data: [T::ZERO; D] };
-
-    pub fn new(data: [T; D]) -> Self {
-        TVec { data }
+impl<T: FloatNum, const N: usize> TVec<T, N> {
+    pub fn new(data: [T; N]) -> Self {
+        TMat::<T, N, 1> { cols: [data] }
     }
 
     pub fn norm(self) -> T {
-        (self.data.iter().map(|x: &T| *x * *x).sum::<T>()).sqrt()
+        (self.cols[0].iter().map(|x: &T| *x * *x).sum::<T>()).sqrt()
     }
 }
 
-impl<T: FloatNum> TVec<T, 2> {
-
+impl<T: FloatNum> TVec2<T> {
     pub fn rotate(self, angle: T) -> Self {
         let sin = angle.sin();
         let cos = angle.cos();
-        TVec::<T, 2>::new(
+        TVec2::<T>::new(
             [self.x() * cos - self.y() * sin, self.x() * sin + self.y() * cos]
         )
     }
 }
 
-impl<T: FloatNum> std::ops::Add for TVec<T, 2> {
-    type Output = TVec<T, 2>;
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::Add for TMat<T, R, C> {
+    type Output = TMat<T, R, C>;
     fn add(self, rhs: Self) -> Self::Output {
-        TVec {
-            data: [self.x() + rhs.x(), self.y() + rhs.y()],
+        let mut mat = TMat::<T, R, C>::ZEROS;
+        for i in 0..R {
+            for j in 0..C {
+                mat.cols[j][i] = self.cols[j][i] + rhs.cols[j][i];
+            }
         }
+        mat
     }
 }
 
-impl<T: FloatNum + std::ops::AddAssign> std::ops::AddAssign for TVec<T, 2> {
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::AddAssign for TMat<T, R, C> {
     fn add_assign(&mut self, rhs: Self) {
-        *self.x_mut() += rhs.x();
-        *self.y_mut() += rhs.y();
+        for i in 0..R {
+            for j in 0..C {
+                self.cols[j][i] += rhs.cols[j][i];
+            }
+        }
     }
 }
 
-impl<T: FloatNum> std::ops::Sub for TVec<T, 2> {
-    type Output = TVec<T, 2>;
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::Sub for TMat<T, R, C> {
+    type Output = TMat<T, R, C>;
     fn sub(self, rhs: Self) -> Self::Output {
-        TVec {
-            data: [self.x() - rhs.x(), self.y() - rhs.y()],
+        let mut mat = TMat::<T, R, C>::ZEROS;
+        for i in 0..R {
+            for j in 0..C {
+                mat.cols[j][i] = self.cols[j][i] - rhs.cols[j][i];
+            }
         }
+        mat
     }
 }
 
-impl<T: FloatNum + std::ops::SubAssign> std::ops::SubAssign for TVec<T, 2> {
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::SubAssign for TMat<T, R, C> {
     fn sub_assign(&mut self, rhs: Self) {
-        *self.x_mut() -= rhs.x();
-        *self.y_mut() -= rhs.y();
+        for i in 0..R {
+            for j in 0..C {
+                self.cols[j][i] -= rhs.cols[j][i];
+            }
+        }
     }
 }
 
-impl<T: FloatNum> std::ops::Mul<T> for TVec<T, 2> {
-    type Output = TVec<T, 2>;
+impl<T: FloatNum, const R1: usize, const C1: usize, const N: usize> std::ops::Mul<TMat<T, C1, N>> for TMat<T, R1, C1> {
+    type Output = TMat<T, R1, N>;
+    fn mul(self, rhs: TMat<T, C1, N>) -> Self::Output {
+        let mut mat = TMat::<T, R1, N>::ZEROS;
+        for i in 0..R1 {
+            for j in 0..N {
+                mat.cols[j][i] = self.row(i).dot(rhs.col(j));
+            }
+        }
+        mat
+    }
+}
+
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::Mul<T> for TMat<T, R, C> {
+    type Output = TMat<T, R, C>;
     fn mul(self, rhs: T) -> Self::Output {
-        TVec {
-            data: [self.x() * rhs, self.y() * rhs],
+        let mut mat = TMat::<T, R, C>::ZEROS;
+        for i in 0..R {
+            for j in 0..C {
+                mat.cols[j][i] = self.cols[j][i] * rhs;
+            }
         }
+        mat
     }
 }
 
-
-impl<T: FloatNum + std::ops::MulAssign> std::ops::MulAssign<T> for TVec<T, 2> {
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::MulAssign<T> for TMat<T, R, C> {
     fn mul_assign(&mut self, rhs: T) {
-        *self.x_mut() *= rhs;
-        *self.y_mut() *= rhs;
+        for i in 0..R {
+            for j in 0..C {
+                self.cols[j][i] *= rhs;
+            }
+        }
     }
 }
 
-impl<T: FloatNum> std::ops::Neg for TVec<T, 2> {
-    type Output = TVec<T, 2>;
+impl<T: FloatNum, const R: usize, const C: usize> std::ops::Neg for TMat<T, R, C> {
+    type Output = TMat<T, R, C>;
     fn neg(self) -> Self::Output {
-        TVec {
-            data: [-self.x(), -self.y()],
+        let mut mat = TMat::<T, R, C>::ZEROS;
+        for i in 0..R {
+            for j in 0..C {
+                mat.cols[j][i] = -self.cols[j][i];
+            }
         }
+        mat
     }
 }
 
@@ -166,7 +219,7 @@ pub trait Dot<RHS> {
 impl<T: FloatNum, const D: usize> Dot<TVec<T, D>> for TVec<T, D> {
     type Output = T;
     fn dot(self, rhs: TVec<T, D>) -> Self::Output {
-        self.data.iter().zip(rhs.data.iter()).map(|(a, b)| *a * *b).sum()
+        self.cols[0].iter().zip(rhs.cols[0].iter()).map(|(a, b)| *a * *b).sum()
     }
 }
 
@@ -198,68 +251,44 @@ impl<T: FloatNum> Cross<TVec<T, 2>> for T {
 //#endregion
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TMat<T: FloatNum, const R: usize, const C: usize> {
-    pub cols: [TVec<T, R>; C],
-}
-
-pub type TMat22<T> = TMat<T, 2, 2>;
-pub type TMat33<T> = TMat<T, 3, 3>;
-pub type TMat44<T> = TMat<T, 4, 4>;
-
 impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
-    pub fn from_cols(cols: [TVec<T, R>; C]) -> Self {
+    pub fn from_cols(cols: [[T; R]; C]) -> Self {
         TMat { cols: cols }
     }
 
-    pub fn from_rows(rows: [TVec<T, C>; R]) -> Self {
-        let mut cols = [TVec::<T, R>::new([T::ZERO; R]); C];
+    pub fn from_rows(rows: [[T; C]; R]) -> Self {
+        let mut cols = [[T::ZERO; R]; C];
         for i in 0..R {
             for j in 0..C {
-                cols[j].data[i] = rows[i].data[j];
+                cols[j][i] = rows[i][j];
             }
         }
         TMat::from_cols(cols)
     }
 
     pub fn zeros() -> Self {
-        TMat::from_cols([TVec::<T, R>::new([T::ZERO; R]); C])
+        TMat::ZEROS
     }
 
     pub fn row(&self, i: usize) -> TVec<T, C> {
-        TVec::<T, C>::new(std::array::from_fn(|j| self.cols[j].data[i]))
+        TVec::<T, C>::new(std::array::from_fn(|j| self.cols[j][i]))
     }
 
     pub fn col(&self, j: usize) -> TVec<T, R> {
-        self.cols[j]
+        TVec::<T, R>::new(self.cols[j])
     }
 }
 
 impl<T: FloatNum, const D: usize> TMat<T, D, D> {
-    pub fn identity() -> Self
-    {
-        let mut cols = [TVec::<T, D>::new([T::ZERO; D]); D];
+    pub fn eye() -> Self {
+        let mut cols = [[T::ZERO; D]; D];
         for j in 0..D {
-            cols[j].data[j] = T::ONE;
+            cols[j][j] = T::ONE;
         }
-        TMat::from_cols(cols)
+        TMat::<T, D, D>::from_cols(cols)
     }
 }
 
-impl<T: FloatNum, const R1: usize, const C1: usize, const N: usize> std::ops::Mul<TMat<T, C1, N>> for TMat<T, R1, C1> {
-    
-    type Output = TMat<T, R1, N>;
-    
-    fn mul(self, rhs: TMat<T, C1, N>) -> Self::Output {
-        let mut cols = [TVec::<T, R1>::new([T::ZERO; R1]); N];
-        for i in 0..R1 {
-            for j in 0..N {
-                cols[j].data[i] = self.row(i).dot(rhs.col(j));
-            }
-        }
-        TMat::from_cols(cols)
-    }
-}
 
 // --- TTransform2d ---
 #[derive(Clone, Copy, Debug)]
@@ -269,7 +298,7 @@ pub struct TTransform2d<T: FloatNum> {
 }
 
 impl<T: FloatNum> TTransform2d<T> {
-    pub const IDENTITY: Self = TTransform2d { origin: TVec2::ZERO, angle: T::ZERO };
+    pub const IDENTITY: Self = TTransform2d { origin: TVec2::ZEROS, angle: T::ZERO };
 
     pub fn new(origin: TVec2<T>, angle: T) -> Self {
         TTransform2d::<T> { origin, angle }
@@ -294,9 +323,9 @@ impl<T: FloatNum> TTransform2d<T> {
         let c = self.angle.cos();
         let s = self.angle.sin();
         TMat33::from_rows([
-            TVec3::new([c, -s, T::ZERO]),
-            TVec3::new([s, c, T::ZERO]),
-            TVec3::new([T::ZERO, T::ZERO, T::ONE]),
+            [c, -s, T::ZERO],
+            [s, c, T::ZERO],
+            [T::ZERO, T::ZERO, T::ONE],
         ])
     }
 }
@@ -325,9 +354,9 @@ pub type Transform2d = TTransform2d<f64>;
 pub fn proj_mat_2d<T: FloatNum>(aspect_ratio: T, width: T) -> TMat33<T> {
     let two = T::from(2).unwrap();
     TMat33::from_rows([
-        TVec3::new([two * aspect_ratio / width, T::ZERO, T::ZERO]),
-        TVec3::new([T::ZERO, two / width, T::ZERO]),
-        TVec3::new([T::ZERO, T::ZERO, T::ONE]),
+        [two * aspect_ratio / width, T::ZERO, T::ZERO],
+        [T::ZERO, two / width, T::ZERO],
+        [T::ZERO, T::ZERO, T::ONE],
     ])
 }
 
@@ -350,7 +379,6 @@ mod tests {
     fn float_num_f64_constants() {
         assert_eq!(f64::ZERO, 0.0);
         assert_eq!(f64::ONE, 1.0);
-        assert_eq!(5.0.cos(), std::f64::consts::FRAC_PI_2);
     }
 
     #[test]
@@ -365,8 +393,8 @@ mod tests {
         let v = mvec!(3.0, 4.0);
         assert_eq!(v.x(), 3.0);
         assert_eq!(v.y(), 4.0);
-        assert_eq!(TVec2::<f64>::ZERO.x(), 0.0);
-        assert_eq!(TVec2::<f64>::ZERO.y(), 0.0);
+        assert_eq!(TVec2::<f64>::ZEROS.x(), 0.0);
+        assert_eq!(TVec2::<f64>::ZEROS.y(), 0.0);
     }
 
     // --- TVec2::norm ---
@@ -463,7 +491,7 @@ mod tests {
     }
 
     fn transform2d_identity() -> TTransform2d<f64> {
-        TTransform2d::new(TVec2::ZERO, 0.0)
+        TTransform2d::new(TVec2::ZEROS, 0.0)
     }
 
     #[test]

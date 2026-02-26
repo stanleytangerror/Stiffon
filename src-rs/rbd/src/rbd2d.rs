@@ -78,13 +78,13 @@ impl Body2d {
             inv_inertia_world: inv_inertia,
             v,
             𝜔,
-            delta_v: Vec2::ZERO,
+            delta_v: Vec2::ZEROS,
             delta_𝜔: 0.0,
             pose,
             geometry,
-            f_ext: Vec2::ZERO,
+            f_ext: Vec2::ZEROS,
             τ_ext: 0.0,
-            delta_linear_velocity: Vec2::ZERO,
+            delta_linear_velocity: Vec2::ZEROS,
             delta_angular_velocity: 0.0,
         }
     }
@@ -109,7 +109,7 @@ impl Body2d {
             self.pose.origin + v_new * dt, 
             self.pose.angle + 𝜔_new * dt);
         
-        self.delta_v = Vec2::ZERO;
+        self.delta_v = Vec2::ZEROS;
         self.delta_𝜔 = 0.0;
     }
 
