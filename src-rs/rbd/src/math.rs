@@ -8,7 +8,9 @@ pub trait FloatNum:
     + std::iter::Sum<Self>
     + std::iter::Product<Self>
     + std::ops::AddAssign + std::ops::SubAssign 
-    + std::ops::MulAssign + std::ops::DivAssign {
+    + std::ops::MulAssign + std::ops::DivAssign
+    + std::fmt::Debug
+{
     const ZERO: Self;
     const ONE: Self;
 }

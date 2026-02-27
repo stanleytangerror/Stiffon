@@ -32,7 +32,7 @@ impl Camera2d {
     pub fn world_to_screen(&self, p: Vec2) -> Vec2 {
         let pn = Vec3::new([p.x(), p.y(), 1.0]);
         let pn_ndc = self.world_to_screen_mat * pn;
-        Vec2::new([pn_ndc.x() * self.pixel_size.x(), pn_ndc.y() * self.pixel_size.y()])
+        Vec2::new([pn_ndc.x(), pn_ndc.y()])
     }
 
     fn on_changed(&mut self) {

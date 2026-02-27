@@ -30,7 +30,7 @@ async fn main() {
     let draw2d = Draw2d::new();
 
     loop {
-        solver.step(1.0);
+        solver.step(0.001);
     
         draw2d.draw(&solver);
 
