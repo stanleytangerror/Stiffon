@@ -30,13 +30,13 @@ pub struct TMat<T: FloatNum, const R: usize, const C: usize> {
     pub cols: [[T; R]; C],
 }
 
-pub type TMat22<T: FloatNum> = TMat<T, 2, 2>;
-pub type TMat33<T: FloatNum> = TMat<T, 3, 3>;
-pub type TMat44<T: FloatNum> = TMat<T, 4, 4>;
-pub type TVec<T: FloatNum, const N: usize> = TMat<T, N, 1>;
-pub type TVec2<T: FloatNum> = TVec<T, 2>;
-pub type TVec3<T: FloatNum> = TVec<T, 3>;
-pub type TVec4<T: FloatNum> = TVec<T, 4>;
+pub type TMat22<T> = TMat<T, 2, 2>;
+pub type TMat33<T> = TMat<T, 3, 3>;
+pub type TMat44<T> = TMat<T, 4, 4>;
+pub type TVec<T, const N: usize> = TMat<T, N, 1>;
+pub type TVec2<T> = TVec<T, 2>;
+pub type TVec3<T> = TVec<T, 3>;
+pub type TVec4<T> = TVec<T, 4>;
 
 impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
     pub const ZEROS: Self = TMat { cols: [[T::ZERO; R]; C] };
@@ -286,6 +286,32 @@ impl<T: FloatNum, const D: usize> TMat<T, D, D> {
             cols[j][j] = T::ONE;
         }
         TMat::<T, D, D>::from_cols(cols)
+    }
+}
+
+impl<T: FloatNum, const N: usize> TVec<T, N> {
+    pub fn unit_x() -> Self {
+        let mut data = [T::ZERO; N];
+        data[0] = T::ONE;
+        TVec::<T, N>::new(data)
+    }
+
+    pub fn unit_y() -> Self {
+        let mut data = [T::ZERO; N];
+        data[1] = T::ONE;
+        TVec::<T, N>::new(data)
+    }
+
+    pub fn unit_z() -> Self {
+        let mut data = [T::ZERO; N];
+        data[2] = T::ONE;
+        TVec::<T, N>::new(data)
+    }
+
+    pub fn unit_w() -> Self {
+        let mut data = [T::ZERO; N];
+        data[3] = T::ONE;
+        TVec::<T, N>::new(data)
     }
 }
 
