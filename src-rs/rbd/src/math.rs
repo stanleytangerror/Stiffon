@@ -379,15 +379,6 @@ pub type Mat44 = TMat44<f64>;
 pub type Transform2d = TTransform2d<f64>;
 //#endregion
 
-pub fn proj_mat_2d<T: FloatNum>(aspect_ratio: T, width: T) -> TMat33<T> {
-    let two = T::from(2).unwrap();
-    TMat33::from_rows([
-        [two * aspect_ratio / width, T::ZERO, T::ZERO],
-        [T::ZERO, two / width, T::ZERO],
-        [T::ZERO, T::ZERO, T::ONE],
-    ])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
