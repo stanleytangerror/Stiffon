@@ -13,19 +13,25 @@ use macroquad::prelude as mq;
 
 #[macroquad::main("rbd2d")]
 async fn main() {
-    let origin = mvec!(0.0, 0.0);
-    let pose = Transform2d::new(origin, 0.0);
-    let geometry = Geometry::rectangle(mvec!(0.5, 0.5));
-    let mut body = Body2d::new(
+    let mut body1 = Body2d::new(
         1.0,
         1.0,
         Vec2::ZEROS,
         0.0,
-        pose,
-        geometry,
+        Transform2d::IDENTITY,
+        Geometry2d::circle(0.5),
     );
-    let mut solver = Solver::new();
-    solver.add_body(body);
+    let mut body2 = Body2d::new(
+        1.0,
+        1.0,
+        Vec2::ZEROS,
+        0.0,
+        Transform2d::IDENTITY,
+        Geometry2d::rectangle(mvec!(0.5, 0.5)),
+    );
+    let mut solver = Solver2d::new();
+    solver.add_body(body1);
+    solver.add_body(body2);
 
     let draw2d = Draw2d::new();
 

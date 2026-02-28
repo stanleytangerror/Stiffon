@@ -100,7 +100,7 @@ impl Draw2d {
         Draw2d { camera, pixel_size }
     }
 
-    pub fn draw(&self, solver: &Solver) {
+    pub fn draw(&self, solver: &Solver2d) {
         self.begin_frame();
         // self.draw_test();
         self.draw_solver(solver);
@@ -122,9 +122,8 @@ impl Draw2d {
 
         mq::draw_rectangle(rect_x, 0.0, rect_width, rect_height, mq::RED);
     }
-
     
-    fn draw_solver(&self,solver: &Solver) {
+    fn draw_solver(&self,solver: &Solver2d) {
         for body in solver.bodies() {
             let geometry = body.geometry();
             let pose = body.pose();
@@ -132,9 +131,9 @@ impl Draw2d {
         }
     }
 
-    fn draw_geometry(&self, geometry: &Geometry, pose: &Transform2d) {
+    fn draw_geometry(&self, geometry: &Geometry2d, pose: &Transform2d) {
         match geometry {
-            Geometry::Rectangle { half_extents } => {
+            Geometry2d::Rectangle { half_extents } => {
                 let p1 = self.camera.world_to_screen(pose.transform_position(mvec!(-half_extents.x(), -half_extents.y())));
                 let p2 = self.camera.world_to_screen(pose.transform_position(mvec!(half_extents.x(), -half_extents.y())));
                 let p3 = self.camera.world_to_screen(pose.transform_position(mvec!(half_extents.x(), half_extents.y())));
@@ -144,9 +143,11 @@ impl Draw2d {
                 mq::draw_line(p3.x() as f32, p3.y() as f32, p4.x() as f32, p4.y() as f32, 1.0, mq::WHITE);
                 mq::draw_line(p4.x() as f32, p4.y() as f32, p1.x() as f32, p1.y() as f32, 1.0, mq::WHITE);
             }
-            Geometry::Circle { radius } => {
+            Geometry2d::Circle { radius } => {
                 let center = self.camera.world_to_screen(pose.origin);
-                mq::draw_circle(center.x() as f32, center.y() as f32, *radius as f32, mq::WHITE);
+                let up = self.camera.world_to_screen(pose.origin + Vec2::unit_y() * *radius);
+                let radius_screen = (up - center).norm();
+                mq::draw_circle_lines(center.x() as f32, center.y() as f32, radius_screen as f32, 1.0, mq::WHITE);
             }
         }
     }
