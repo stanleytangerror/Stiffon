@@ -117,9 +117,11 @@ impl Body2d {
         let v_new = self.v + self.delta_v;
         let 𝜔_new = self.𝜔 + self.delta_𝜔;
 
-        self.pose = Transform2d::new(
-            self.pose.origin + v_new * dt, 
-            self.pose.angle + 𝜔_new * dt);
+        self.pose.origin += v_new * dt;
+        self.pose.angle += 𝜔_new * dt;
+
+        self.v = v_new;
+        self.𝜔 = 𝜔_new;
         
         self.delta_v = Vec2::ZEROS;
         self.delta_𝜔 = 0.0;
@@ -169,9 +171,7 @@ impl Solver2d {
 
     pub fn step(&mut self, dt: f64) {
         for body in &mut self.bodies {
-            if body.inv_mass != 0.0 {
-                body.apply_gravity(self.gravity);
-            }
+            body.apply_gravity(self.gravity);
         }
 
         for body in &mut self.bodies {
@@ -199,17 +199,17 @@ impl Solver2d {
 
 #[derive(Copy, Clone)]
 struct Cons1d {
-    eff_mass: MFloat,
+    inv_eff_mass: f64,
     jacobian: TMat<f64, 1, 6>,
-    bias: MFloat,
+    bias: f64,
 }
 
 impl Cons1d {
     pub fn new() -> Self {
         Cons1d {
-            eff_mass: MFloat::ZEROS,
+            inv_eff_mass: 0.0,
             jacobian: TMat::ZEROS,
-            bias: MFloat::ZEROS,
+            bias: 0.0,
         }
     }
 }
@@ -240,11 +240,11 @@ impl BallJoint2d {
 
     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
         
-        let world_transform_A = body_A.pose * self.local_frame_body_A;
-        let world_transform_B = body_B.pose * self.local_frame_body_B;
+        let p_A = body_A.pose * self.local_frame_body_A;
+        let p_B = body_B.pose * self.local_frame_body_B;
 
-        let r_A = world_transform_A.origin - body_A.pose.origin;
-        let r_B = world_transform_B.origin - body_B.pose.origin;
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
 
         self.inv_m = d_concat!(
             Mat22::diag([body_A.inv_mass; 2]),
@@ -267,11 +267,11 @@ impl BallJoint2d {
                 -r_B.cross(n)
             );
 
-            let c_init = n.T() * (world_transform_A.origin - world_transform_B.origin);
+            let c_init = (n.T() * (p_A.origin - p_B.origin)).as_float();
             let erp = 0.2;
             self.Cons1d[i].bias = -c_init * (erp / dt);
 
-            self.Cons1d[i].eff_mass = self.Cons1d[i].jacobian * self.inv_m * self.Cons1d[i].jacobian.T();
+            self.Cons1d[i].inv_eff_mass = 1.0 / (self.Cons1d[i].jacobian * self.inv_m * self.Cons1d[i].jacobian.T()).as_float();
         }       
     }
 
@@ -292,9 +292,13 @@ impl BallJoint2d {
         );
         
         for i in 0..2 {
-            let rhs = -self.Cons1d[i].jacobian * (v + dv) - self.Cons1d[i].bias;
-            let lambda = self.Cons1d[i].eff_mass * rhs;
-            let impulse = self.Cons1d[i].jacobian.T() * lambda;
+            let cons = &self.Cons1d[i];
+
+            let jv = (cons.jacobian * (v + dv)).as_float();
+            let rhs = -jv - cons.bias;
+            let lambda = cons.inv_eff_mass * rhs;
+            println!("lambda: {:?}", lambda);
+            let impulse = cons.jacobian.T() * lambda;
             dv += self.inv_m * impulse;
         }
 
