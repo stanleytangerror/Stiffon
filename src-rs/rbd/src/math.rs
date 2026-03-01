@@ -1,8 +1,4 @@
-// #![allow(incomplete_features)]
-// #![feature(generic_const_exprs)]
-// #![feature(const_generics)]
-// #![feature(const_evaluatable_checked)]
-#![allow(unused)]
+#![allow(incomplete_features)]
 
 use num_traits::{Zero, One, Float};
 
@@ -36,6 +32,7 @@ pub struct TMat<T: FloatNum, const R: usize, const C: usize> {
     pub cols: [[T; R]; C],
 }
 
+pub type TMat11<T> = TMat<T, 1, 1>;
 pub type TMat22<T> = TMat<T, 2, 2>;
 pub type TMat33<T> = TMat<T, 3, 3>;
 pub type TMat44<T> = TMat<T, 4, 4>;
@@ -47,6 +44,8 @@ pub type TVec4<T> = TVec<T, 4>;
 impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
     pub const ZEROS: Self = TMat { cols: [[T::ZERO; R]; C] };
     pub const ONES: Self = TMat { cols: [[T::ONE; R]; C] };
+    pub const COLS: usize = C;
+    pub const ROWS: usize = R;
 }
 
 /// 不定个参数构造向量，例如：`mvec!(1.0, 2.0)`、`mvec!(1.0, 2.0, 3.0)`。
@@ -299,90 +298,154 @@ impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
         let rows = self.cols;
         TMat::<T, C, R>::from_rows(rows)
     }
+
+    pub fn sub<const R_OUT: usize, const C_OUT: usize>(
+        &self,
+        rows: std::ops::Range<usize>,
+        cols: std::ops::Range<usize>,
+    ) -> TMat<T, R_OUT, C_OUT> {
+        assert!(rows.start < rows.end && rows.end <= R, 
+                "row overflow: {:?} out of range {}", rows, R);
+        assert_eq!(rows.len(), R_OUT, "row count mismatch");
+        
+        assert!(cols.start < cols.end && cols.end <= C, 
+                "col overflow: {:?} out of range {}", cols, C);
+        assert_eq!(cols.len(), C_OUT, "col count mismatch");
+        
+        let cols: [[T; R_OUT]; C_OUT] = std::array::from_fn(|col_idx| {
+            std::array::from_fn(|row_idx| {
+                self.cols[cols.start + col_idx][rows.start + row_idx]
+            })
+        });
+        
+        TMat::<T, R_OUT, C_OUT>::from_cols(cols)
+    }
 }
 
 impl<T: FloatNum, const R: usize, const C1: usize> TMat<T, R, C1> {
-    pub fn h_concat<const C2: usize, const N: usize>(self, rhs: TMat<T, R, C2>) -> TMat<T, R, N> {
-        assert_eq!(C1 + C2, N);
-
-        let cols: [[T; R]; N] = std::array::from_fn(|j| {
+    pub fn h_con<const C2: usize>(self, rhs: TMat<T, R, C2>) -> TMat<T, R, {C1 + C2}> {
+        let cols: [[T; R]; {C1 + C2}] = std::array::from_fn(|j| {
             if j < C1 {
                 self.cols[j]
             } else {
                 rhs.cols[j - C1]
             }
         });
-        TMat::<T, R, N>::from_cols(cols)
+        TMat::<T, R, {C1 + C2}>::from_cols(cols)
     }
 }
 
+
 impl<T: FloatNum, const R1: usize, const C: usize> TMat<T, R1, C> {
-    pub fn v_concat<const R2: usize, const N: usize>(self, rhs: TMat<T, R2, C>) -> TMat<T, N, C> {
-        assert_eq!(R1 + R2, N);
-
-        let cols: [[T; N]; C] = std::array::from_fn(|i| {
-            Self::arr_concat(self.cols[i], rhs.cols[i])
+    pub fn v_con<const R2: usize>(self, rhs: TMat<T, R2, C>) -> TMat<T, {R1 + R2}, C> {
+        let cols: [[T; {R1 + R2}]; C] = std::array::from_fn(|i| {
+            arr_concat(self.cols[i], rhs.cols[i])
         });
-        TMat::<T, N, C>::from_cols(cols)
+        TMat::<T, {R1 + R2}, C>::from_cols(cols)
     }
+}
 
-    fn arr_concat<const A: usize, const B: usize, const AB: usize>(arr1: [T; A], arr2: [T; B]) -> [T; AB] {
-        assert_eq!(A + B, AB);
-        let mut arr = [T::ZERO; AB];
-        arr[..A].copy_from_slice(&arr1);
-        arr[A..].copy_from_slice(&arr2);
-        arr
+fn arr_concat<T: FloatNum, const N1: usize, const N2: usize>(arr1: [T; N1], arr2: [T; N2]) -> [T; {N1+N2}] {
+    let mut arr = [T::ZERO; {N1 + N2}];
+    arr[..N1].copy_from_slice(&arr1);
+    arr[N1..].copy_from_slice(&arr2);
+    arr
+}
+
+pub trait AsMat<T: FloatNum, const R: usize, const C: usize> {
+    fn as_mat(&self) -> TMat<T, R, C>;
+}
+
+impl<T: FloatNum> AsMat<T, 1, 1> for T {
+    fn as_mat(&self) -> TMat<T, 1, 1> {
+        TMat::<T, 1, 1>::from_cols([[*self]])
+    }
+}
+
+impl<T: FloatNum, const R: usize, const C: usize> AsMat<T, R, C> for TMat<T, R, C> {
+    fn as_mat(&self) -> TMat<T, R, C> {
+        *self
+    }
+}
+
+pub trait AsFloat<T: FloatNum, const R: usize, const C: usize> {
+    fn as_float(&self) -> T;
+}
+
+
+impl<T: FloatNum> AsFloat<T, 1, 1> for TMat<T, 1, 1> {
+    fn as_float(&self) -> T {
+        self.cols[0][0]
     }
 }
 
 #[macro_export]
 macro_rules! h_concat {
-    // 基本情况：单个矩阵
-    ($mat:expr) => {
-        $mat
-    };
+    ($mat:expr) => { $mat };
     
-    // 递归情况：两个矩阵拼接
-    ($first:expr, $second:expr) => {{
-        $first.h_concat($second)
-    }};
+    ($first:expr, $second:expr) => {{ $first.as_mat().h_con($second.as_mat()) }};
     
-    // 递归情况：多个矩阵
     ($first:expr, $second:expr, $($rest:expr),+) => {{
-        let temp = $first.h_concat($second);
-        h_concat!(temp, $($rest),+)
+        let merged = $first.as_mat().h_con($second.as_mat());
+        h_concat!(merged, $($rest),+)
     }};
 }
 
 #[macro_export]
 macro_rules! v_concat {
-    // 基本情况：单个矩阵
-    ($mat:expr) => {
-        $mat
-    };
+    ($mat:expr) => { $mat };
     
-    // 递归情况：两个矩阵拼接
-    ($first:expr, $second:expr) => {{
-        $first.v_concat($second)
-    }};
+    ($first:expr, $second:expr) => {{ $first.as_mat().v_con($second.as_mat()) }};
     
-    // 递归情况：多个矩阵
-    ($first:expr, $second:expr, $($rest:expr),+) => {{
-        let temp = $first.v_concat($second);
-        v_concat!(temp, $($rest),+)
+    ($first:expr, $second:expr, $($rest:expr),+) => {{ 
+        let merged = $first.as_mat().v_con($second.as_mat());
+        v_concat!(merged, $($rest),+)
     }};
 }
 
-impl<T: FloatNum, const D: usize> TMat<T, D, D> {
+
+impl<T: FloatNum, const N: usize> TMat<T, N, N> {
     pub fn eye() -> Self {
-        let mut cols = [[T::ZERO; D]; D];
-        for j in 0..D {
+        let mut cols = [[T::ZERO; N]; N];
+        for j in 0..N {
             cols[j][j] = T::ONE;
         }
-        TMat::<T, D, D>::from_cols(cols)
+        TMat::<T, N, N>::from_cols(cols)
+    }
+
+    pub fn diag(v: [T; N]) -> Self {
+        let mut cols = [[T::ZERO; N]; N];
+        for j in 0..N {
+            cols[j][j] = v[j];
+        }
+        TMat::<T, N, N>::from_cols(cols)
     }
 }
 
+impl<T: FloatNum, const N1: usize> TMat<T, N1, N1> {
+    pub fn d_con<const N2: usize>(self, rhs: TMat<T, N2, N2>) -> TMat<T, {N1 + N2}, {N1 + N2}> {
+        let cols: [[T; {N1 + N2}]; {N1 + N2}] = std::array::from_fn(|j| {
+            if j < N1 {
+                arr_concat(self.cols[j], [T::ZERO; N2])
+            } else {
+                arr_concat([T::ZERO; N1], rhs.cols[j - N1])
+            }
+        });
+        TMat::<T, {N1 + N2}, {N1 + N2}>::from_cols(cols)
+    }
+}
+
+#[macro_export]
+macro_rules! d_concat {
+    ($mat:expr) => { $mat };
+    
+    ($first:expr, $second:expr) => {{ $first.as_mat().d_con($second.as_mat()) }};
+
+    ($first:expr, $second:expr, $($rest:expr),+) => {{
+        let merged = $first.as_mat().d_con($second.as_mat());
+        d_concat!(merged, $($rest),+)
+    }};
+}
 
 // --- TTransform2d ---
 #[derive(Clone, Copy, Debug)]
@@ -439,6 +502,7 @@ impl<T: FloatNum> std::ops::Mul<TTransform2d<T>> for TTransform2d<T> {
 pub type Vec2 = TVec2<f64>;
 pub type Vec3 = TVec3<f64>;
 pub type Vec4 = TVec4<f64>;
+pub type MFloat = TMat11<f64>;
 pub type Mat22 = TMat22<f64>;
 pub type Mat33 = TMat33<f64>;
 pub type Mat44 = TMat44<f64>;
@@ -651,7 +715,7 @@ mod tests {
         // 两个 2x1 列向量水平拼接成 2x2
         let a = mvec!(1.0, 2.0);  // 2x1
         let b = mvec!(3.0, 4.0);  // 2x1
-        let c = a.h_concat::<1, 2>(b);
+        let c = a.h_con(b);
         let expected = TMat22::from_cols([[1.0, 2.0], [3.0, 4.0]]);
         assert!(mat2x2_approx_eq(c, expected));
     }
@@ -661,7 +725,7 @@ mod tests {
         // 2x2 与 2x1 水平拼接成 2x3
         let a = TMat::from_cols([[1.0, 2.0], [3.0, 4.0]]);  // 2x2
         let b = mvec!(5.0, 6.0);  // 2x1
-        let c: TMat<f64, 2, 3> = a.h_concat::<1, 3>(b);
+        let c: TMat<f64, 2, 3> = a.h_con(b);
         assert!(approx_eq(c.cols[0][0], 1.0) && approx_eq(c.cols[0][1], 2.0));
         assert!(approx_eq(c.cols[1][0], 3.0) && approx_eq(c.cols[1][1], 4.0));
         assert!(approx_eq(c.cols[2][0], 5.0) && approx_eq(c.cols[2][1], 6.0));
@@ -672,7 +736,7 @@ mod tests {
         // 两个 1x2 行向量垂直拼接成 2x2
         let a = TMat::from_cols([[1.0], [2.0]]);  // 1x2 即一行 [1, 2]
         let b = TMat::from_cols([[3.0], [4.0]]);  // 1x2 即一行 [3, 4]
-        let c: TMat22<f64> = a.v_concat(b);
+        let c: TMat22<f64> = a.v_con(b);
         let expected = TMat22::from_cols([[1.0, 3.0], [2.0, 4.0]]);
         assert!(mat2x2_approx_eq(c, expected));
     }
@@ -682,7 +746,7 @@ mod tests {
         // 2x2 与 1x2 垂直拼接成 3x2
         let a = TMat::from_cols([[1.0, 2.0], [3.0, 4.0]]);  // 2x2
         let b = TMat::from_cols([[5.0], [6.0]]);  // 1x2
-        let c: TMat<f64, 3, 2> = a.v_concat::<1, 3>(b);
+        let c: TMat<f64, 3, 2> = a.v_con(b);
         assert!(approx_eq(c.cols[0][0], 1.0) && approx_eq(c.cols[0][1], 2.0) && approx_eq(c.cols[0][2], 5.0));
         assert!(approx_eq(c.cols[1][0], 3.0) && approx_eq(c.cols[1][1], 4.0) && approx_eq(c.cols[1][2], 6.0));
     }
@@ -691,7 +755,7 @@ mod tests {
     fn h_concat_macro_two_matrices() {
         let a = mvec!(1.0, 0.0);
         let b = mvec!(0.0, 1.0);
-        let m: TMat22<f64> = crate::h_concat!(a, b);
+        let m: TMat22<f64> = a.h_con(b);
         assert!(mat2x2_approx_eq(m, TMat22::from_cols([[1.0, 0.0], [0.0, 1.0]])));
     }
 
@@ -701,8 +765,8 @@ mod tests {
         let b = mvec!(0.0, 1.0);
         let c = mvec!(-1.0, -1.0);
         let m: TMat<f64, 2, 3> = {
-            let temp: TMat22<f64> = a.h_concat::<1, 2>(b);
-            temp.h_concat::<1, 3>(c)
+            let temp: TMat22<f64> = a.h_con(b);
+            temp.h_con(c)
         };
         assert!(approx_eq(m.cols[0][0], 1.0) && approx_eq(m.cols[0][1], 0.0));
         assert!(approx_eq(m.cols[1][0], 0.0) && approx_eq(m.cols[1][1], 1.0));
@@ -713,7 +777,7 @@ mod tests {
     fn v_concat_macro_two_matrices() {
         let a = TMat::from_cols([[1.0], [0.0]]);  // 1x2
         let b = TMat::from_cols([[0.0], [1.0]]);
-        let m: TMat22<f64> = crate::v_concat!(a, b);
+        let m: TMat22<f64> = a.v_con(b);
         assert!(mat2x2_approx_eq(m, TMat22::from_cols([[1.0, 0.0], [0.0, 1.0]])));
     }
 
@@ -723,8 +787,8 @@ mod tests {
         let b = TMat::from_cols([[0.0], [1.0]]);
         let c = TMat::from_cols([[1.0], [1.0]]);
         let m: TMat<f64, 3, 2> = {
-            let temp: TMat22<f64> = a.v_concat::<1, 2>(b);
-            temp.v_concat::<1, 3>(c)
+            let temp: TMat22<f64> = a.v_con(b);
+            temp.v_con(c)
         };
         assert!(approx_eq(m.cols[0][0], 1.0) && approx_eq(m.cols[0][1], 0.0) && approx_eq(m.cols[0][2], 1.0));
         assert!(approx_eq(m.cols[1][0], 0.0) && approx_eq(m.cols[1][1], 1.0) && approx_eq(m.cols[1][2], 1.0));
