@@ -38,6 +38,8 @@ pub struct Body2d {
     𝜔: f64,
     delta_v: Vec2,
     delta_𝜔: f64,
+    ext_force_dv: Vec2,
+    ext_torque_d𝜔: f64,
     pose: Transform2d,
     geometry: Geometry2d,
     f_ext: Vec2,
@@ -84,6 +86,8 @@ impl Body2d {
             𝜔,
             delta_v: Vec2::ZEROS,
             delta_𝜔: 0.0,
+            ext_force_dv: Vec2::ZEROS,
+            ext_torque_d𝜔: 0.0,
             pose,
             geometry,
             f_ext: Vec2::ZEROS,
@@ -106,25 +110,38 @@ impl Body2d {
     }
 
     pub fn pre_solve(&mut self, dt: f64) {
-        self.delta_v = self.f_ext * self.inv_mass * dt;
-        self.delta_𝜔 = self.inv_inertia * self.τ_ext * dt;
+        self.ext_force_dv = self.f_ext * self.inv_mass * dt;
+        self.ext_torque_d𝜔 = self.inv_inertia * self.τ_ext * dt;
 
         self.f_ext = Vec2::ZEROS;
         self.τ_ext = 0.0;
     }
 
-    pub fn post_solve(&mut self, dt: f64) {
-        let v_new = self.v + self.delta_v;
-        let 𝜔_new = self.𝜔 + self.delta_𝜔;
+    pub fn post_pos_solve(&mut self, dt: f64) {
+        let v_new = self.v + self.delta_v + self.ext_force_dv;
+        let 𝜔_new = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
 
         self.pose.origin += v_new * dt;
         self.pose.angle += 𝜔_new * dt;
 
-        self.v = v_new;
-        self.𝜔 = 𝜔_new;
+        self.delta_v = Vec2::ZEROS;
+        self.delta_𝜔 = 0.0;
+
+        println!("-----------------");
+        println!("post_pos_solve: origin: {:?}, angle: {:?}, v: {:?}, 𝜔: {:?}", self.pose.origin, self.pose.angle, self.v, self.𝜔);
+    }
+
+    pub fn post_vel_solve(&mut self, dt: f64) {
+        self.v = self.v + self.delta_v + self.ext_force_dv;
+        self.𝜔 = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
         
         self.delta_v = Vec2::ZEROS;
         self.delta_𝜔 = 0.0;
+        self.ext_force_dv = Vec2::ZEROS;
+        self.ext_torque_d𝜔 = 0.0;
+
+        println!("-----------------");
+        println!("post_vel_solve: origin: {:?}, angle: {:?}, v: {:?}, 𝜔: {:?}", self.pose.origin, self.pose.angle, self.v, self.𝜔);
     }
 
     pub fn pose(&self) -> Transform2d {
@@ -140,7 +157,8 @@ pub struct Solver2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
     constraints: Vec<BallJoint2d>,
-    iterations: usize,
+    pos_iter_count: usize,
+    vel_iter_count: usize,
 }
 
 impl Solver2d {
@@ -149,7 +167,8 @@ impl Solver2d {
             bodies: Vec::new(),
             gravity: mvec!(0.0, -9.8),
             constraints: Vec::new(),
-            iterations: 1,
+            pos_iter_count: 1,
+            vel_iter_count: 1,
         }
     }
 
@@ -170,6 +189,8 @@ impl Solver2d {
     }
 
     pub fn step(&mut self, dt: f64) {
+        println!("======================");
+
         for body in &mut self.bodies {
             body.apply_gravity(self.gravity);
         }
@@ -182,17 +203,30 @@ impl Solver2d {
             constraint.setup(&self.bodies[constraint.body_A], &self.bodies[constraint.body_B], dt);
         }
 
-        for i in 0..self.iterations {
+        for i in 0..self.pos_iter_count {
             for constraint in &mut self.constraints {
                 let [mut body_A, mut body_B] = self.bodies
                     .get_disjoint_mut([constraint.body_A, constraint.body_B])
                     .expect("constraint body indices out of bounds or equal");
-                constraint.iteration(body_A, body_B, dt);
+                constraint.iteration(body_A, body_B, true);
             }
         }
 
         for body in &mut self.bodies {
-            body.post_solve(dt);
+            body.post_pos_solve(dt);
+        }
+
+        for i in 0..self.vel_iter_count {
+            for constraint in &mut self.constraints {
+                let [mut body_A, mut body_B] = self.bodies
+                    .get_disjoint_mut([constraint.body_A, constraint.body_B])
+                    .expect("constraint body indices out of bounds or equal");
+                constraint.iteration(body_A, body_B, false);
+            }
+        }
+
+        for body in &mut self.bodies {
+            body.post_vel_solve(dt);
         }
     }
 }
@@ -202,6 +236,7 @@ struct Cons1d {
     inv_eff_mass: f64,
     jacobian: TMat<f64, 1, 6>,
     bias: f64,
+    impulse_mag: f64,
 }
 
 impl Cons1d {
@@ -210,6 +245,7 @@ impl Cons1d {
             inv_eff_mass: 0.0,
             jacobian: TMat::ZEROS,
             bias: 0.0,
+            impulse_mag: 0.0,
         }
     }
 }
@@ -236,6 +272,18 @@ impl BallJoint2d {
             inv_m: TMat::ZEROS,
             Cons1d: [Cons1d::new(); 2],
         }
+    }
+
+
+    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
+        let dv = 
+            self.inv_m * self.Cons1d[0].jacobian.T() * self.Cons1d[0].impulse_mag + 
+            self.inv_m * self.Cons1d[1].jacobian.T() * self.Cons1d[1].impulse_mag;
+
+        body_A.delta_v += dv.sub(0..2, 0..1);
+        body_A.delta_𝜔 += dv.sub(2..3, 0..1).as_float();
+        body_B.delta_v += dv.sub(3..5, 0..1);
+        body_B.delta_𝜔 += dv.sub(5..6, 0..1).as_float();
     }
 
     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
@@ -275,7 +323,7 @@ impl BallJoint2d {
         }       
     }
 
-    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, dt: f64) {
+    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
 
         let v = v_concat!(
             body_A.v,
@@ -290,17 +338,32 @@ impl BallJoint2d {
             body_B.delta_v,
             body_B.delta_𝜔
         );
+
+        let ext_dv = v_concat!(
+            body_A.ext_force_dv,
+            body_A.ext_torque_d𝜔,
+            body_B.ext_force_dv,
+            body_B.ext_torque_d𝜔
+        );
         
+
+        let mut v_lambda = Vec2::ZEROS;
+        let mut v_impulse = TMat::<f64, 6, 1>::ZEROS;
+
         for i in 0..2 {
             let cons = &self.Cons1d[i];
 
-            let jv = (cons.jacobian * (v + dv)).as_float();
-            let rhs = -jv - cons.bias;
+            let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+            let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
             let lambda = cons.inv_eff_mass * rhs;
-            println!("lambda: {:?}", lambda);
             let impulse = cons.jacobian.T() * lambda;
             dv += self.inv_m * impulse;
+
+            v_lambda.cols[0][i] = lambda;
+            v_impulse += impulse;
         }
+
+        println!("is_pos_iter: {:?}, lambda: {:?}, impulse: {:?}", is_pos_iter, v_lambda, v_impulse);
 
         body_A.delta_v = dv.sub(0..2, 0..1);
         body_A.delta_𝜔 = dv.sub(2..3, 0..1).as_float();

@@ -475,7 +475,7 @@ class Scene:
         for _ in range(self.position_iterations):
             for constraint in self.temporary_constraints:
                 constraint.iteration(is_positional_iteration=True)
-        for _ in range(self.velocity_iterations):
+        for _ in range(self.position_iterations):
             for constraint in self.persistent_constraints:
                 constraint.iteration(is_positional_iteration=True)
         self.post_position_iteration(dt)
@@ -484,7 +484,7 @@ class Scene:
             constraint.warm_up()
         for constraint in self.persistent_constraints:
             constraint.warm_up()
-        for _ in range(self.position_iterations):
+        for _ in range(self.velocity_iterations):
             for constraint in self.temporary_constraints:
                 constraint.iteration(is_positional_iteration=False)
         for _ in range(self.velocity_iterations):
