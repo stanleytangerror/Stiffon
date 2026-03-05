@@ -1,6 +1,7 @@
 #![allow(incomplete_features)]
 
 use num_traits::{Zero, One, Float};
+use std::ops::Range;
 
 //#region FloatNum
 pub trait FloatNum: 
@@ -32,6 +33,7 @@ pub struct TMat<T: FloatNum, const R: usize, const C: usize> {
     pub cols: [[T; R]; C],
 }
 
+pub type TMat00<T> = TMat<T, 0, 0>;
 pub type TMat11<T> = TMat<T, 1, 1>;
 pub type TMat22<T> = TMat<T, 2, 2>;
 pub type TMat33<T> = TMat<T, 3, 3>;
@@ -63,7 +65,6 @@ impl<T: FloatNum, const N: usize> TVec<T, N> {
     pub fn norm(self) -> T {
         (self.cols[0].iter().map(|x: &T| *x * *x).sum::<T>()).sqrt()
     }
-
     #[inline(always)]
     pub fn x(&self) -> T {
         self.cols[0][0]
@@ -161,7 +162,7 @@ impl<T: FloatNum, const R: usize, const C: usize> std::ops::Sub for TMat<T, R, C
         let mut mat = TMat::<T, R, C>::ZEROS;
         for i in 0..R {
             for j in 0..C {
-                mat.cols[j][i] = self.cols[j][i] - rhs.cols[j][i];
+                *mat.v_mut(i, j) = self.v(i, j) - rhs.v(i, j);
             }
         }
         mat
@@ -299,26 +300,12 @@ impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
         TMat::<T, C, R>::from_rows(rows)
     }
 
-    pub fn sub<const R_OUT: usize, const C_OUT: usize>(
-        &self,
-        rows: std::ops::Range<usize>,
-        cols: std::ops::Range<usize>,
-    ) -> TMat<T, R_OUT, C_OUT> {
-        assert!(rows.start < rows.end && rows.end <= R, 
-                "row overflow: {:?} out of range {}", rows, R);
-        assert_eq!(rows.len(), R_OUT, "row count mismatch");
-        
-        assert!(cols.start < cols.end && cols.end <= C, 
-                "col overflow: {:?} out of range {}", cols, C);
-        assert_eq!(cols.len(), C_OUT, "col count mismatch");
-        
-        let cols: [[T; R_OUT]; C_OUT] = std::array::from_fn(|col_idx| {
-            std::array::from_fn(|row_idx| {
-                self.cols[cols.start + col_idx][rows.start + row_idx]
-            })
-        });
-        
-        TMat::<T, R_OUT, C_OUT>::from_cols(cols)
+    pub fn v(&self, i: usize, j: usize) -> T {
+        self.cols[j][i]
+    }
+
+    pub fn v_mut(&mut self, i: usize, j: usize) -> &mut T {
+        &mut self.cols[j][i]
     }
 }
 
@@ -447,6 +434,103 @@ macro_rules! d_concat {
     }};
 }
 
+pub struct TMatSlice<'a, T: FloatNum, const R: usize, const C: usize> {
+    data: &'a TMat<T, R, C>,
+    rows: Range<usize>,
+    cols: Range<usize>,
+}
+
+impl<T: FloatNum, const R: usize, const C: usize> TMatSlice<'_, T, R, C> {
+    pub fn v(&self, i: usize, j: usize) -> T {
+        self.data.v(self.rows.start + i, self.cols.start + j)
+    }
+
+    pub fn is_h_vec(&self) -> bool {
+        self.rows.len() == 1
+    }
+
+    pub fn is_v_vec(&self) -> bool {
+        self.cols.len() == 1
+    }
+
+    pub fn vec_dim(&self) -> usize {
+        if self.is_h_vec() {
+            self.cols.len()
+        } else if self.is_v_vec() {
+            self.rows.len()
+        } else {
+            assert!(false, "invalid range");
+            unreachable!()
+        }
+    }
+
+    pub fn v_vec(&self, i: usize) -> T {
+        if self.is_h_vec() {
+            self.v(i, 0)
+        } else if self.is_v_vec() {
+            self.v(0, i)
+        } else {
+            assert!(false, "invalid range");
+            unreachable!()
+        }
+    }
+}
+
+impl<'a, 'b, T: FloatNum, const R1: usize, const C1: usize, const R2: usize, const C2: usize> Dot<TMatSlice<'b, T, R2, C2>> for TMatSlice<'a, T, R1, C1> {
+    type Output = T;
+    fn dot(self, rhs: TMatSlice<'b, T, R2, C2>) -> Self::Output {
+        assert!(self.is_h_vec() || self.is_v_vec(), "self is not a vector");
+        assert!(rhs.is_h_vec() || rhs.is_v_vec(), "rhs is not a vector");
+
+        assert_eq!(self.vec_dim(), rhs.vec_dim(), "vector dimensions do not match");
+
+        let n = self.vec_dim();
+        let mut sum = T::ZERO;
+        for i in 0..n {
+            sum += self.v_vec(i) * rhs.v_vec(i);
+        }
+        sum
+    }
+}
+
+impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
+    pub fn slice(
+        &self,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) -> TMatSlice<'_, T, R, C> {
+        TMatSlice {
+            data: self,
+            rows,
+            cols,
+        }
+    }
+
+    pub fn h_slice(&self, rows: usize, cols: Range<usize>) -> TMatSlice<'_, T, R, C> {
+        self.slice(rows..rows+1, cols)
+    }
+
+    pub fn v_slice(&self, rows: Range<usize>, cols: usize) -> TMatSlice<'_, T, R, C> {
+        self.slice(rows, cols..cols+1)
+    }
+}
+
+impl<T: FloatNum, const R1: usize, const C1: usize, const R2: usize, const C2: usize> From<TMatSlice<'_, T, R2, C2>> 
+    for TMat<T, R1, C1> 
+{
+    fn from(slice: TMatSlice<'_, T, R2, C2>) -> Self {
+        assert!(slice.rows.len() == R1 && slice.cols.len() == C1, "slice range does not match target matrix dimension");
+
+        let mut mat = TMat::<T, R1, C1>::ZEROS;
+        for i in 0..R1 {
+            for j in 0..C1 {
+                *mat.v_mut(i, j) = slice.v(i, j);
+            }
+        }
+        mat
+    }
+}
+
 // --- TTransform2d ---
 #[derive(Clone, Copy, Debug)]
 pub struct TTransform2d<T: FloatNum> {
@@ -497,17 +581,73 @@ impl<T: FloatNum> std::ops::Mul<TTransform2d<T>> for TTransform2d<T> {
     }
 }
 
+// #[macro_export]
+// macro_rules! slice {
+//     ($mat:expr, $rows:expr, $cols:expr) => {{
+//         let rows = $rows;
+//         let cols = $cols;
+//         match rows, cols {
+//             (usize, std::ops::Range<usize>) => {
+//                 $mat.h_slice(rows, cols)
+//             }
+//             (std::ops::Range<usize>, usize) => {
+//                 $mat.v_slice(cols, rows)
+//             }
+//             (std::ops::Range<usize>, std::ops::Range<usize>) => {
+//                 $mat.slice(rows, cols)
+//             }
+//             _ => {
+//                 panic!("slice: invalid range");
+//             }
+//         }
+//     }};
+
+//     // 向量切片: vec.slice!(1..3)
+//     ($vec:expr, $rows:expr) => {{
+//         let rows = $rows;
+//         $vec.v_slice(rows, 0)
+//     }};
+// }
+
 
 //#region
 pub type Vec2 = TVec2<f64>;
 pub type Vec3 = TVec3<f64>;
 pub type Vec4 = TVec4<f64>;
-pub type MFloat = TMat11<f64>;
+pub type Mat11 = TMat11<f64>;
 pub type Mat22 = TMat22<f64>;
 pub type Mat33 = TMat33<f64>;
 pub type Mat44 = TMat44<f64>;
 pub type Transform2d = TTransform2d<f64>;
 //#endregion
+
+pub fn solve_gauss_seidel<T: FloatNum, const R: usize, const C: usize>(
+    A: TMat<T, R, C>,
+    b: TVec<T, R>,
+    max_iterations: usize,
+    tolerance: T,
+) -> TVec<T, C> {
+    // A = D + L + U
+    // x_next = (D + L)^{-1} @ (-U @ x_prev + b)
+
+    let mut x = TVec::<T, C>::ZEROS;
+    let mut iterations = 0;
+    while iterations < max_iterations {
+        let mut x_new = TVec::<T, C>::ZEROS;
+        for i in 0..R {
+            *x_new.v_mut(i, 0) = (b.v(i, 0) 
+                - A.h_slice(i, 0..i).dot(x_new.v_slice(0..i, 0)) 
+                - A.h_slice(i, i+1..C).dot(x.v_slice(i+1..C, 0))) / A.v(i, i);
+        }
+        x = x_new;
+        let err = (A * x - b).norm();
+        if err < tolerance {
+            break;
+        }
+        iterations += 1;
+    }
+    x
+}
 
 #[cfg(test)]
 mod tests {
