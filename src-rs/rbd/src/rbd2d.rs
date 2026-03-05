@@ -150,7 +150,7 @@ impl Body2d {
 pub struct Solver2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
-    constraints: Vec<BallJoint2d>,
+    constraints: Vec<PointJoint2d>,
     pos_iter_count: usize,
     vel_iter_count: usize,
 }
@@ -172,7 +172,7 @@ impl Solver2d {
         index
     }
 
-    pub fn add_constraint(&mut self, constraint: BallJoint2d) -> usize {
+    pub fn add_constraint(&mut self, constraint: PointJoint2d) -> usize {
         let index = self.constraints.len();
         self.constraints.push(constraint);
         index
@@ -249,7 +249,7 @@ impl Cons1d {
     }
 }
 
-pub struct BallJoint2d {
+pub struct PointJoint2d {
     body_A: usize,
     body_B: usize,
     local_frame_body_A: Transform2d,
@@ -261,10 +261,10 @@ pub struct BallJoint2d {
     Cons2d: Cons2d,
 }
 
-impl BallJoint2d {
+impl PointJoint2d {
 
     pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d) -> Self {
-        BallJoint2d {
+        PointJoint2d {
             body_A,
             body_B,
             local_frame_body_A,
