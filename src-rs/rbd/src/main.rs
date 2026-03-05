@@ -37,11 +37,7 @@ async fn main() {
         Geometry2d::rectangle(mvec!(0.5, 0.5)),
     ));
 
-    let cons1 = solver.add_constraint(PointJoint2d::new(
-        body1, body2, 
-        Transform2d::new(mvec!(1.5, 0.0), 0.0),
-        Transform2d::new(mvec!(-1.5, 0.0), 0.0)));
-
+    let cons1 = solver.add_point_constraint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
     let draw2d = Draw2d::new();
 
     loop {

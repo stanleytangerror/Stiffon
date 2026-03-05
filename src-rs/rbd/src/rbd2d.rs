@@ -172,9 +172,17 @@ impl Solver2d {
         index
     }
 
-    pub fn add_constraint(&mut self, constraint: PointJoint2d) -> usize {
+    pub fn add_point_constraint(&mut self, body_A_id: usize, body_B_id: usize, pos_world_A: Vec2, pos_world_B: Vec2) -> usize {
         let index = self.constraints.len();
+
+        let body_A = &self.bodies[body_A_id];
+        let body_B = &self.bodies[body_B_id];
+        let local_frame_body_A = body_A.pose.inv() * Transform2d::new(pos_world_A, 0.0);
+        let local_frame_body_B = body_B.pose.inv() * Transform2d::new(pos_world_B, 0.0);
+
+        let constraint = PointJoint2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B);
         self.constraints.push(constraint);
+
         index
     }
 
