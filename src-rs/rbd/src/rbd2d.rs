@@ -239,13 +239,6 @@ struct Cons1d {
     impulse_mag: f64,
 }
 
-struct Cons2d {
-    inv_eff_mass: Mat22,
-    jacobian: TMat<f64, 2, 6>,
-    bias: Vec2,
-    impulse_mag: Vec2,
-}
-
 impl Cons1d {
     pub fn new() -> Self {
         Cons1d {
@@ -264,9 +257,9 @@ pub struct PointJoint2d {
     local_frame_body_B: Transform2d,
     
     inv_m: TMat<f64, 6, 6>,
-    // Cons1d: [Cons1d; 2],
+    Cons1d: [Cons1d; 2],
 
-    Cons2d: Cons2d,
+    // Cons2d: Cons2d,
 }
 
 impl PointJoint2d {
@@ -279,15 +272,15 @@ impl PointJoint2d {
             local_frame_body_B,
 
             inv_m: TMat::ZEROS,
-            // Cons1d: [Cons1d::new(); 2],
-            Cons2d: Cons2d { inv_eff_mass: Mat22::ZEROS, jacobian: TMat::ZEROS, bias: Vec2::ZEROS, impulse_mag: Vec2::ZEROS },
+            Cons1d: [Cons1d::new(); 2],
         }
     }
 
 
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
         let dv = 
-            self.inv_m * self.Cons2d.jacobian.T() * self.Cons2d.impulse_mag;
+            self.inv_m * self.Cons1d[0].jacobian.T() * self.Cons1d[0].impulse_mag +
+            self.inv_m * self.Cons1d[1].jacobian.T() * self.Cons1d[1].impulse_mag;
 
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
@@ -312,39 +305,24 @@ impl PointJoint2d {
 
         let axis = [ Vec2::unit_x(), Vec2::unit_y() ];
         
-        // for i in 0..2 {
-        //     let n = axis[i];
+        for i in 0..2 {
+            let n = axis[i];
 
-        //     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
-        //     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ] in R^1x6
-        //     self.Cons1d[i].jacobian = h_concat!(
-        //         n.T(), 
-        //         r_A.cross(n), 
-        //         -n.T(), 
-        //         -r_B.cross(n)
-        //     );
+            // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
+            // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ] in R^1x6
+            self.Cons1d[i].jacobian = h_concat!(
+                n.T(), 
+                r_A.cross(n), 
+                -n.T(), 
+                -r_B.cross(n)
+            );
 
-        //     let c_init = (n.T() * (p_A.origin - p_B.origin)).as_float();
-        //     let erp = 0.2;
-        //     self.Cons1d[i].bias = -c_init * (erp / dt);
+            let c_init = (n.T() * (p_A.origin - p_B.origin)).as_float();
+            let erp = 0.2;
+            self.Cons1d[i].bias = c_init * (erp / dt);
 
-        //     self.Cons1d[i].inv_eff_mass = 1.0 / (self.Cons1d[i].jacobian * self.inv_m * self.Cons1d[i].jacobian.T()).as_float();
-        // }  
-
-        // C = v_A + ω_A × r_A - v_B - ω_B × r_B in R^2
-        // J = [ I_2, -[r_A]x, -I_2, [r_B]x ] in R^2x6
-        self.Cons2d.jacobian = h_concat!(
-            Mat22::eye(), 
-            -r_A.cross(1.0), 
-            -Mat22::eye(), 
-            r_B.cross(1.0)
-        );
-
-        let c_init = p_A.origin - p_B.origin;
-        let erp = 0.2;
-        self.Cons2d.bias = c_init * (erp / dt);
-
-        self.Cons2d.inv_eff_mass = self.Cons2d.jacobian * self.inv_m * self.Cons2d.jacobian.T();
+            self.Cons1d[i].inv_eff_mass = 1.0 / (self.Cons1d[i].jacobian * self.inv_m * self.Cons1d[i].jacobian.T()).as_float();
+        }  
     }
 
     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
@@ -374,24 +352,18 @@ impl PointJoint2d {
         let mut v_lambda = Vec2::ZEROS;
         let mut v_impulse = TMat::<f64, 6, 1>::ZEROS;
 
-        // for i in 0..2 {
-        //     let cons = &self.Cons1d[i];
+        for i in 0..2 {
+            let cons = &self.Cons1d[i];
 
-        //     let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
-        //     let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
-        //     let lambda = cons.inv_eff_mass * rhs;
-        //     let impulse = cons.jacobian.T() * lambda;
-        //     dv += self.inv_m * impulse;
+            let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+            let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
+            let lambda = cons.inv_eff_mass * rhs;
+            let impulse = cons.jacobian.T() * lambda;
+            dv += self.inv_m * impulse;
 
-        //     v_lambda.cols[0][i] = lambda;
-        //     v_impulse += impulse;
-        // }
-
-        let jv = self.Cons2d.jacobian * (v + dv + ext_dv);
-        let rhs = if is_pos_iter { -jv - self.Cons2d.bias } else { -jv };
-        let lambda = solve_gauss_seidel(self.Cons2d.inv_eff_mass, rhs, 10, 1e-6);
-        let impulse = self.Cons2d.jacobian.T() * lambda;
-        dv += self.inv_m * impulse;
+            v_lambda.cols[0][i] = lambda;
+            v_impulse += impulse;
+        }
 
         body_A.delta_v = dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
