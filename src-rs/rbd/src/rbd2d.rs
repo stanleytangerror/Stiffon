@@ -251,16 +251,16 @@ trait Constraint {
 }
 
 #[derive(Copy, Clone)]
-struct Cons1d {
+struct constraint_1d {
     inv_eff_mass: f64,
     jacobian: TMat<f64, 1, 6>,
     bias: f64,
     impulse_mag: f64,
 }
 
-impl Cons1d {
+impl constraint_1d {
     pub fn new() -> Self {
-        Cons1d {
+        constraint_1d {
             inv_eff_mass: 0.0,
             jacobian: TMat::ZEROS,
             bias: 0.0,
@@ -276,7 +276,7 @@ pub struct PointJoint2d {
     local_frame_body_B: Transform2d,
     
     inv_m: TMat<f64, 6, 6>,
-    Cons1d: [Cons1d; 2],
+    constraint_1d: [constraint_1d; 2],
 
     // Cons2d: Cons2d,
 }
@@ -290,7 +290,7 @@ impl PointJoint2d {
             local_frame_body_B,
 
             inv_m: TMat::ZEROS,
-            Cons1d: [Cons1d::new(); 2],
+            constraint_1d: [constraint_1d::new(); 2],
         }
     }
 }
@@ -304,8 +304,8 @@ impl Constraint for PointJoint2d {
     }
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
         let dv = 
-            self.inv_m * self.Cons1d[0].jacobian.T() * self.Cons1d[0].impulse_mag +
-            self.inv_m * self.Cons1d[1].jacobian.T() * self.Cons1d[1].impulse_mag;
+            self.inv_m * self.constraint_1d[0].jacobian.T() * self.constraint_1d[0].impulse_mag +
+            self.inv_m * self.constraint_1d[1].jacobian.T() * self.constraint_1d[1].impulse_mag;
 
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
@@ -335,7 +335,7 @@ impl Constraint for PointJoint2d {
 
             // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
             // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ] in R^1x6
-            self.Cons1d[i].jacobian = h_concat!(
+            self.constraint_1d[i].jacobian = h_concat!(
                 n.T(), 
                 r_A.cross(n), 
                 -n.T(), 
@@ -344,9 +344,9 @@ impl Constraint for PointJoint2d {
 
             let c_init = (n.T() * (p_A.origin - p_B.origin)).as_float();
             let erp = 0.2;
-            self.Cons1d[i].bias = c_init * (erp / dt);
+            self.constraint_1d[i].bias = c_init * (erp / dt);
 
-            self.Cons1d[i].inv_eff_mass = 1.0 / (self.Cons1d[i].jacobian * self.inv_m * self.Cons1d[i].jacobian.T()).as_float();
+            self.constraint_1d[i].inv_eff_mass = 1.0 / (self.constraint_1d[i].jacobian * self.inv_m * self.constraint_1d[i].jacobian.T()).as_float();
         }  
     }
 
@@ -374,7 +374,7 @@ impl Constraint for PointJoint2d {
         );
         
         for i in 0..2 {
-            let cons = &self.Cons1d[i];
+            let cons = &self.constraint_1d[i];
 
             let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
             let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
@@ -398,7 +398,7 @@ pub struct AngularJoint2d {
     local_frame_body_B: Transform2d,
     
     inv_m: TMat<f64, 6, 6>,
-    Cons1d: Cons1d,
+    constraint_1d: constraint_1d,
 
     // Cons2d: Cons2d,
 }
@@ -413,7 +413,7 @@ impl AngularJoint2d {
             local_frame_body_B,
 
             inv_m: TMat::ZEROS,
-            Cons1d: Cons1d::new(),
+            constraint_1d: constraint_1d::new(),
         }
     }
 }
@@ -427,7 +427,7 @@ impl Constraint for AngularJoint2d {
     }
 
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
-        let dv = self.inv_m * self.Cons1d.jacobian.T() * self.Cons1d.impulse_mag;
+        let dv = self.inv_m * self.constraint_1d.jacobian.T() * self.constraint_1d.impulse_mag;
 
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
@@ -452,7 +452,7 @@ impl Constraint for AngularJoint2d {
         
         // C = o_A - o_B = 0
         // J = [ 0, 1, 0, -1 ] in R^1x6
-        self.Cons1d.jacobian = h_concat!(
+        self.constraint_1d.jacobian = h_concat!(
             Vec2::ZEROS.T(), 
             1.0, 
             Vec2::ZEROS.T(), 
@@ -461,9 +461,9 @@ impl Constraint for AngularJoint2d {
 
         let c_init = p_A.angle - p_B.angle;
         let erp = 0.2;
-        self.Cons1d.bias = c_init * (erp / dt);
+        self.constraint_1d.bias = c_init * (erp / dt);
 
-        self.Cons1d.inv_eff_mass = 1.0 / (self.Cons1d.jacobian * self.inv_m * self.Cons1d.jacobian.T()).as_float();
+        self.constraint_1d.inv_eff_mass = 1.0 / (self.constraint_1d.jacobian * self.inv_m * self.constraint_1d.jacobian.T()).as_float();
     }
 
     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
@@ -489,7 +489,7 @@ impl Constraint for AngularJoint2d {
             body_B.ext_torque_d𝜔
         );
         
-        let cons = &self.Cons1d;
+        let cons = &self.constraint_1d;
 
         let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
         let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
