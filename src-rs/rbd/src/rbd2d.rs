@@ -397,12 +397,17 @@ impl Constraint for PointJoint2d {
         );
         
         for i in 0..2 {
-            let cons = &self.constraint_1d[i];
+            let cons = &mut self.constraint_1d[i];
 
             let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
             let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
             let lambda = cons.inv_eff_mass * rhs;
-            let impulse = cons.jacobian.T() * lambda;
+
+            let last_accum_lambda = cons.accum_lambda;
+            cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
+            let new_lambda = cons.accum_lambda - last_accum_lambda;
+            let impulse = cons.jacobian.T() * new_lambda;
+    
             dv += self.inv_m * impulse;
         }
 
@@ -514,12 +519,17 @@ impl Constraint for AngularJoint2d {
             body_B.ext_torque_d𝜔
         );
         
-        let cons = &self.constraint_1d;
+        let cons = &mut self.constraint_1d;
 
         let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
         let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
         let lambda = cons.inv_eff_mass * rhs;
-        let impulse = cons.jacobian.T() * lambda;
+        
+        let last_accum_lambda = cons.accum_lambda;
+        cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
+        let new_lambda = cons.accum_lambda - last_accum_lambda;
+        let impulse = cons.jacobian.T() * new_lambda;
+        
         dv += self.inv_m * impulse;
 
         body_A.delta_v = dv.v_slice(0..2, 0).into();
@@ -639,12 +649,10 @@ impl Constraint for AngularMotor2d {
         let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
         let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
         let lambda = cons.inv_eff_mass * rhs;
-        println!("accum lambda: {}, lambda: {}", cons.accum_lambda, lambda);
 
         let last_accum_lambda = cons.accum_lambda;
         cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
         let new_lambda = cons.accum_lambda - last_accum_lambda;
-        println!("new lambda: {}", new_lambda);
         let impulse = cons.jacobian.T() * new_lambda;
 
         dv += self.inv_m * impulse;
