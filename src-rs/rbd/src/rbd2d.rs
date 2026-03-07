@@ -197,6 +197,17 @@ impl Solver2d {
         index
     }
 
+    pub fn add_angular_motor(&mut self, body_A_id: usize, body_B_id: usize, 𝜔: f64) -> usize {
+        let index = self.constraints.len();
+        let body_A = &self.bodies[body_A_id];
+        let body_B = &self.bodies[body_B_id];
+        let local_frame_body_A = body_A.pose.inv();
+        let local_frame_body_B = body_B.pose.inv();
+        let mut constraint = AngularMotor2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, 𝜔.to_radians());
+        self.constraints.push(Box::new(constraint));
+        index
+    }
+
     pub fn bodies(&self) -> &Vec<Body2d> {
         &self.bodies
     }
@@ -504,3 +515,113 @@ impl Constraint for AngularJoint2d {
     }
 }
 
+
+pub struct AngularMotor2d {
+    body_A: usize,
+    body_B: usize,
+    local_frame_body_A: Transform2d,
+    local_frame_body_B: Transform2d,
+    
+    𝜔: f64,
+    inv_m: TMat<f64, 6, 6>,
+    constraint_1d: Constraint1d,
+
+    // Cons2d: Cons2d,
+}
+
+impl AngularMotor2d {
+
+    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, 𝜔: f64) -> Self {
+        AngularMotor2d {
+            body_A,
+            body_B,
+            local_frame_body_A,
+            local_frame_body_B,
+
+            𝜔,
+            inv_m: TMat::ZEROS,
+            constraint_1d: Constraint1d::new(),
+        }
+    }
+}
+
+impl Constraint for AngularMotor2d {
+    fn body_A_id(&self) -> usize {
+        self.body_A
+    }
+    fn body_B_id(&self) -> usize {
+        self.body_B
+    }
+
+    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {}
+
+    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
+        
+        let p_A = body_A.pose * self.local_frame_body_A;
+        let p_B = body_B.pose * self.local_frame_body_B;
+
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
+
+        let angle_diff = p_A.angle - p_B.angle;
+
+        self.inv_m = d_concat!(
+            Mat22::diag([body_A.inv_mass; 2]),
+            body_A.inv_inertia,
+            Mat22::diag([body_B.inv_mass; 2]),
+            body_B.inv_inertia
+        );
+        
+        // C = (o_A - o_B) - angle_diff - 𝜔*dt = 0
+        // J = [ 0, 1, 0, -1 ] in R^1x6
+        self.constraint_1d.jacobian = h_concat!(
+            Vec2::ZEROS.T(), 
+            1.0, 
+            Vec2::ZEROS.T(), 
+            -1.0
+        );
+
+        let c_init = (p_A.angle - p_B.angle) - angle_diff - self.𝜔*dt;
+        let erp = 1.0;
+        self.constraint_1d.bias = c_init * (erp / dt);
+
+        self.constraint_1d.inv_eff_mass = 1.0 / (self.constraint_1d.jacobian * self.inv_m * self.constraint_1d.jacobian.T()).as_float();
+    }
+
+    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
+
+        let v = v_concat!(
+            body_A.v,
+            body_A.𝜔,
+            body_B.v,
+            body_B.𝜔
+        );
+
+        let mut dv = v_concat!(
+            body_A.delta_v,
+            body_A.delta_𝜔,
+            body_B.delta_v,
+            body_B.delta_𝜔
+        );
+
+        let ext_dv = v_concat!(
+            body_A.ext_force_dv,
+            body_A.ext_torque_d𝜔,
+            body_B.ext_force_dv,
+            body_B.ext_torque_d𝜔
+        );
+        
+        let cons = &self.constraint_1d;
+
+        let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+        let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
+        let lambda = cons.inv_eff_mass * rhs;
+        let impulse = cons.jacobian.T() * lambda;
+        dv += self.inv_m * impulse;
+
+        body_A.delta_v = dv.v_slice(0..2, 0).into();
+        body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
+        body_B.delta_v = dv.v_slice(3..5, 0).into();
+        body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+}
