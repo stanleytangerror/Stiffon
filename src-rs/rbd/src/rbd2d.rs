@@ -208,6 +208,17 @@ impl Solver2d {
         index
     }
 
+    pub fn add_angular_limit(&mut self, body_A_id: usize, body_B_id: usize, angle_min: f64, angle_max: f64) -> usize {
+        let index = self.constraints.len();
+        let body_A = &self.bodies[body_A_id];
+        let body_B = &self.bodies[body_B_id];
+        let local_frame_body_A = body_A.pose.inv();
+        let local_frame_body_B = body_B.pose.inv();
+        let mut constraint = AngularLimit2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, angle_min.to_radians(), angle_max.to_radians());
+        self.constraints.push(Box::new(constraint));
+        index
+    }
+
     pub fn bodies(&self) -> &Vec<Body2d> {
         &self.bodies
     }
@@ -268,6 +279,7 @@ struct Constraint1d {
     bias: f64,
     accum_lambda: f64,
     max_accum_lambda: f64,
+    need_resolve: bool,
 }
 
 impl Constraint1d {
@@ -278,6 +290,7 @@ impl Constraint1d {
             bias: 0.0,
             accum_lambda: 0.0,
             max_accum_lambda: f64::INFINITY,
+            need_resolve: true,
         }
     }
 
@@ -287,6 +300,7 @@ impl Constraint1d {
         self.bias = 0.0;
         self.accum_lambda = 0.0;
         self.max_accum_lambda = f64::INFINITY;
+        self.need_resolve = true;
     }
 }
 
@@ -656,6 +670,147 @@ impl Constraint for AngularMotor2d {
         let impulse = cons.jacobian.T() * new_lambda;
 
         dv += self.inv_m * impulse;
+
+        body_A.delta_v = dv.v_slice(0..2, 0).into();
+        body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
+        body_B.delta_v = dv.v_slice(3..5, 0).into();
+        body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+}
+
+
+pub struct AngularLimit2d {
+    body_A: usize,
+    body_B: usize,
+    local_frame_body_A: Transform2d,
+    local_frame_body_B: Transform2d,
+    
+    angle_min: f64,
+    angle_max: f64,
+    
+    inv_m: TMat<f64, 6, 6>,
+    constraint_1d: [Constraint1d; 2],
+
+    // Cons2d: Cons2d,
+}
+
+impl AngularLimit2d {
+
+    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, angle_min: f64, angle_max: f64) -> Self {
+        AngularLimit2d {
+            body_A,
+            body_B,
+            local_frame_body_A,
+            local_frame_body_B,
+
+            angle_min,
+            angle_max,
+            inv_m: TMat::ZEROS,
+            constraint_1d: [Constraint1d::new(), Constraint1d::new()],
+        }
+    }
+}
+
+impl Constraint for AngularLimit2d {
+    fn body_A_id(&self) -> usize {
+        self.body_A
+    }
+    fn body_B_id(&self) -> usize {
+        self.body_B
+    }
+
+    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {}
+
+    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
+        
+        let p_A = body_A.pose * self.local_frame_body_A;
+        let p_B = body_B.pose * self.local_frame_body_B;
+
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
+
+        let angle_diff = p_A.angle - p_B.angle;
+
+        self.inv_m = d_concat!(
+            Mat22::diag([body_A.inv_mass; 2]),
+            body_A.inv_inertia,
+            Mat22::diag([body_B.inv_mass; 2]),
+            body_B.inv_inertia
+        );
+
+        for i in 0..2 {
+            let is_min = i == 0;
+            let cons = &mut self.constraint_1d[i];
+
+            cons.reset();
+
+            // min:
+            // C = (o_A - o_B) - angle_min >= 0
+            // J = [ 0, 1, 0, -1 ] in R^1x6
+            // max:
+            // C = angle_max - (o_A - o_B) >= 0
+            // J = [ 0, -1, 0, 1 ] in R^1x6
+            cons.jacobian = h_concat!(
+                Vec2::ZEROS.T(), 
+                if is_min { 1.0 } else { -1.0 }, 
+                Vec2::ZEROS.T(), 
+                if is_min { -1.0 } else { 1.0 }
+            );
+
+            let c_init = if is_min { (p_A.angle - p_B.angle) - self.angle_min } else { self.angle_max - (p_A.angle - p_B.angle) };
+
+            if c_init >= 0.0 {
+                cons.need_resolve = false;
+            }
+
+            let erp = 1.0;
+            cons.bias = c_init * (erp / dt);
+
+            cons.inv_eff_mass = 1.0 / (cons.jacobian * self.inv_m * cons.jacobian.T()).as_float();
+        }
+    }
+
+    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
+
+        let v = v_concat!(
+            body_A.v,
+            body_A.𝜔,
+            body_B.v,
+            body_B.𝜔
+        );
+
+        let mut dv = v_concat!(
+            body_A.delta_v,
+            body_A.delta_𝜔,
+            body_B.delta_v,
+            body_B.delta_𝜔
+        );
+
+        let ext_dv = v_concat!(
+            body_A.ext_force_dv,
+            body_A.ext_torque_d𝜔,
+            body_B.ext_force_dv,
+            body_B.ext_torque_d𝜔
+        );
+        
+        for i in 0..2 {
+            let cons = &mut self.constraint_1d[i];
+
+            if !cons.need_resolve {
+                continue;
+            }
+
+            let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+            let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
+            let lambda = cons.inv_eff_mass * rhs;
+
+            let last_accum_lambda = cons.accum_lambda;
+            cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
+            let new_lambda = cons.accum_lambda - last_accum_lambda;
+            let impulse = cons.jacobian.T() * new_lambda;
+
+            dv += self.inv_m * impulse;
+        }
 
         body_A.delta_v = dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
