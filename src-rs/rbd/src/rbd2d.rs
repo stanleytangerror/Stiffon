@@ -197,13 +197,13 @@ impl Solver2d {
         index
     }
 
-    pub fn add_angular_motor(&mut self, body_A_id: usize, body_B_id: usize, 𝜔: f64) -> usize {
+    pub fn add_angular_motor(&mut self, body_A_id: usize, body_B_id: usize, torque_max: f64, 𝜔: f64) -> usize {
         let index = self.constraints.len();
         let body_A = &self.bodies[body_A_id];
         let body_B = &self.bodies[body_B_id];
         let local_frame_body_A = body_A.pose.inv();
         let local_frame_body_B = body_B.pose.inv();
-        let mut constraint = AngularMotor2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, 𝜔.to_radians());
+        let mut constraint = AngularMotor2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, torque_max, 𝜔.to_radians());
         self.constraints.push(Box::new(constraint));
         index
     }
@@ -266,17 +266,27 @@ struct Constraint1d {
     inv_eff_mass: f64,
     jacobian: TMat<f64, 1, 6>,
     bias: f64,
-    impulse_mag: f64,
+    accum_lambda: f64,
+    max_accum_lambda: f64,
 }
 
 impl Constraint1d {
     pub fn new() -> Self {
         Constraint1d {
-            inv_eff_mass: 0.0,
+            inv_eff_mass: 1.0,
             jacobian: TMat::ZEROS,
             bias: 0.0,
-            impulse_mag: 0.0,
+            accum_lambda: 0.0,
+            max_accum_lambda: f64::INFINITY,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.inv_eff_mass = 1.0;
+        self.jacobian = TMat::ZEROS;
+        self.bias = 0.0;
+        self.accum_lambda = 0.0;
+        self.max_accum_lambda = f64::INFINITY;
     }
 }
 
@@ -315,8 +325,8 @@ impl Constraint for PointJoint2d {
     }
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
         let dv = 
-            self.inv_m * self.constraint_1d[0].jacobian.T() * self.constraint_1d[0].impulse_mag +
-            self.inv_m * self.constraint_1d[1].jacobian.T() * self.constraint_1d[1].impulse_mag;
+            self.inv_m * self.constraint_1d[0].jacobian.T() * self.constraint_1d[0].accum_lambda +
+            self.inv_m * self.constraint_1d[1].jacobian.T() * self.constraint_1d[1].accum_lambda;
 
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
@@ -342,6 +352,8 @@ impl Constraint for PointJoint2d {
         let axis = [ Vec2::unit_x(), Vec2::unit_y() ];
         
         for i in 0..2 {
+            self.constraint_1d[i].reset();
+
             let n = axis[i];
 
             // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
@@ -438,7 +450,7 @@ impl Constraint for AngularJoint2d {
     }
 
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
-        let dv = self.inv_m * self.constraint_1d.jacobian.T() * self.constraint_1d.impulse_mag;
+        let dv = self.inv_m * self.constraint_1d.jacobian.T() * self.constraint_1d.accum_lambda;
 
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
@@ -461,6 +473,8 @@ impl Constraint for AngularJoint2d {
             body_B.inv_inertia
         );
         
+        self.constraint_1d.reset();
+
         // C = o_A - o_B = 0
         // J = [ 0, 1, 0, -1 ] in R^1x6
         self.constraint_1d.jacobian = h_concat!(
@@ -522,6 +536,8 @@ pub struct AngularMotor2d {
     local_frame_body_A: Transform2d,
     local_frame_body_B: Transform2d,
     
+    torque_max: f64,
+    
     𝜔: f64,
     inv_m: TMat<f64, 6, 6>,
     constraint_1d: Constraint1d,
@@ -531,13 +547,14 @@ pub struct AngularMotor2d {
 
 impl AngularMotor2d {
 
-    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, 𝜔: f64) -> Self {
+    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, torque_max: f64, 𝜔: f64) -> Self {
         AngularMotor2d {
             body_A,
             body_B,
             local_frame_body_A,
             local_frame_body_B,
 
+            torque_max,
             𝜔,
             inv_m: TMat::ZEROS,
             constraint_1d: Constraint1d::new(),
@@ -572,6 +589,8 @@ impl Constraint for AngularMotor2d {
             body_B.inv_inertia
         );
         
+        self.constraint_1d.reset();
+
         // C = (o_A - o_B) - angle_diff - 𝜔*dt = 0
         // J = [ 0, 1, 0, -1 ] in R^1x6
         self.constraint_1d.jacobian = h_concat!(
@@ -586,6 +605,10 @@ impl Constraint for AngularMotor2d {
         self.constraint_1d.bias = c_init * (erp / dt);
 
         self.constraint_1d.inv_eff_mass = 1.0 / (self.constraint_1d.jacobian * self.inv_m * self.constraint_1d.jacobian.T()).as_float();
+
+        self.constraint_1d.max_accum_lambda = self.torque_max * dt;
+
+        self.constraint_1d.accum_lambda = 0.0;
     }
 
     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
@@ -611,12 +634,19 @@ impl Constraint for AngularMotor2d {
             body_B.ext_torque_d𝜔
         );
         
-        let cons = &self.constraint_1d;
+        let cons = &mut self.constraint_1d;
 
         let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
         let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
         let lambda = cons.inv_eff_mass * rhs;
-        let impulse = cons.jacobian.T() * lambda;
+        println!("accum lambda: {}, lambda: {}", cons.accum_lambda, lambda);
+
+        let last_accum_lambda = cons.accum_lambda;
+        cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
+        let new_lambda = cons.accum_lambda - last_accum_lambda;
+        println!("new lambda: {}", new_lambda);
+        let impulse = cons.jacobian.T() * new_lambda;
+
         dv += self.inv_m * impulse;
 
         body_A.delta_v = dv.v_slice(0..2, 0).into();

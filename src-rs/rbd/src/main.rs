@@ -108,7 +108,7 @@ impl Rbd2dSample for AngularMotor2dSample {
         ));
     
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
-        let cons2 = solver.add_angular_motor(body1, body2, 100.0);
+        let cons2 = solver.add_angular_motor(body1, body2, 500.0,  -100.0);
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
