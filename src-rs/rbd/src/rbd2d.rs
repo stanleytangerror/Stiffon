@@ -251,16 +251,16 @@ trait Constraint {
 }
 
 #[derive(Copy, Clone)]
-struct constraint_1d {
+struct Constraint1d {
     inv_eff_mass: f64,
     jacobian: TMat<f64, 1, 6>,
     bias: f64,
     impulse_mag: f64,
 }
 
-impl constraint_1d {
+impl Constraint1d {
     pub fn new() -> Self {
-        constraint_1d {
+        Constraint1d {
             inv_eff_mass: 0.0,
             jacobian: TMat::ZEROS,
             bias: 0.0,
@@ -276,7 +276,7 @@ pub struct PointJoint2d {
     local_frame_body_B: Transform2d,
     
     inv_m: TMat<f64, 6, 6>,
-    constraint_1d: [constraint_1d; 2],
+    constraint_1d: [Constraint1d; 2],
 
     // Cons2d: Cons2d,
 }
@@ -290,7 +290,7 @@ impl PointJoint2d {
             local_frame_body_B,
 
             inv_m: TMat::ZEROS,
-            constraint_1d: [constraint_1d::new(); 2],
+            constraint_1d: [Constraint1d::new(); 2],
         }
     }
 }
@@ -398,7 +398,7 @@ pub struct AngularJoint2d {
     local_frame_body_B: Transform2d,
     
     inv_m: TMat<f64, 6, 6>,
-    constraint_1d: constraint_1d,
+    constraint_1d: Constraint1d,
 
     // Cons2d: Cons2d,
 }
@@ -413,7 +413,7 @@ impl AngularJoint2d {
             local_frame_body_B,
 
             inv_m: TMat::ZEROS,
-            constraint_1d: constraint_1d::new(),
+            constraint_1d: Constraint1d::new(),
         }
     }
 }
