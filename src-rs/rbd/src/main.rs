@@ -15,33 +15,84 @@ use crate::rbd2d::*;
 use crate::draw2d::Draw2d;
 use macroquad::prelude as mq;
 
+trait Rbd2dSample {
+    fn setup(&self, solver: &mut Solver2d);
+    fn step(&self, solver: &mut Solver2d, dt: f64);
+}
+
+struct PointJoint2dSample {
+}
+
+impl Rbd2dSample for PointJoint2dSample {
+    fn setup(&self, solver: &mut Solver2d) {
+        let body1 = solver.add_body(Body2d::new(
+            INFINITY,
+            INFINITY,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(Vec2::ZEROS, 0.0),
+            Geometry2d::circle(0.5),
+        ));
+        
+        let body2 = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(mvec!(3.0, 0.0), 0.0),
+            Geometry2d::rectangle(mvec!(0.5, 0.5)),
+        ));
+    
+        let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
+    }
+
+    fn step(&self, solver: &mut Solver2d, dt: f64) {
+        solver.step(dt);
+    }
+}
+
+struct AngularJoint2dSample {
+}
+
+impl Rbd2dSample for AngularJoint2dSample {
+    fn setup(&self, solver: &mut Solver2d) {
+        let body1 = solver.add_body(Body2d::new(
+            INFINITY,
+            INFINITY,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(Vec2::ZEROS, 0.0),
+            Geometry2d::circle(0.5),
+        ));
+        
+        let body2 = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(mvec!(3.0, 0.0), 0.0),
+            Geometry2d::rectangle(mvec!(0.5, 0.5)),
+        ));
+    
+        let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
+        let cons2 = solver.add_angular_joint(body1, body2, 90.0);
+    }
+
+    fn step(&self, solver: &mut Solver2d, dt: f64) {
+        solver.step(dt);
+    }
+}
+
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
+    let sample = AngularJoint2dSample {};
+    sample.setup(&mut solver);
 
-    let body1 = solver.add_body(Body2d::new(
-        INFINITY,
-        INFINITY,
-        Vec2::ZEROS,
-        0.0,
-        Transform2d::new(Vec2::ZEROS, 0.0),
-        Geometry2d::circle(0.5),
-    ));
-    
-    let body2 = solver.add_body(Body2d::new(
-        1.0,
-        1.0,
-        Vec2::ZEROS,
-        0.0,
-        Transform2d::new(mvec!(3.0, 0.0), 0.0),
-        Geometry2d::rectangle(mvec!(0.5, 0.5)),
-    ));
-
-    let cons1 = solver.add_point_constraint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
     let draw2d = Draw2d::new();
 
     loop {
-        solver.step(0.01);
+        sample.step(&mut solver, 0.01);
     
         draw2d.draw(&solver);
 

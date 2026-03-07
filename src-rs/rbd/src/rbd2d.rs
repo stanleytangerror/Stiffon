@@ -150,7 +150,7 @@ impl Body2d {
 pub struct Solver2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
-    constraints: Vec<PointJoint2d>,
+    constraints: Vec<Box<dyn Constraint>>,
     pos_iter_count: usize,
     vel_iter_count: usize,
 }
@@ -172,7 +172,7 @@ impl Solver2d {
         index
     }
 
-    pub fn add_point_constraint(&mut self, body_A_id: usize, body_B_id: usize, pos_world_A: Vec2, pos_world_B: Vec2) -> usize {
+    pub fn add_point_joint(&mut self, body_A_id: usize, body_B_id: usize, pos_world_A: Vec2, pos_world_B: Vec2) -> usize {
         let index = self.constraints.len();
 
         let body_A = &self.bodies[body_A_id];
@@ -180,9 +180,20 @@ impl Solver2d {
         let local_frame_body_A = body_A.pose.inv() * Transform2d::new(pos_world_A, 0.0);
         let local_frame_body_B = body_B.pose.inv() * Transform2d::new(pos_world_B, 0.0);
 
-        let constraint = PointJoint2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B);
-        self.constraints.push(constraint);
+        let mut constraint = PointJoint2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B);
+        self.constraints.push(Box::new(constraint));
 
+        index
+    }
+
+    pub fn add_angular_joint(&mut self, body_A_id: usize, body_B_id: usize, angle: f64) -> usize {
+        let index = self.constraints.len();
+        let body_A = &self.bodies[body_A_id];
+        let body_B = &self.bodies[body_B_id];
+        let local_frame_body_A = body_A.pose.inv() * Transform2d::new(Vec2::ZEROS, angle.to_radians());
+        let local_frame_body_B = body_B.pose.inv() * Transform2d::new(Vec2::ZEROS, 0.0);
+        let mut constraint = AngularJoint2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B);
+        self.constraints.push(Box::new(constraint));
         index
     }
 
@@ -200,13 +211,13 @@ impl Solver2d {
         }
 
         for constraint in &mut self.constraints {
-            constraint.setup(&self.bodies[constraint.body_A], &self.bodies[constraint.body_B], dt);
+            constraint.setup(&self.bodies[constraint.body_A_id()], &self.bodies[constraint.body_B_id()], dt);
         }
 
         for i in 0..self.pos_iter_count {
             for constraint in &mut self.constraints {
                 let [mut body_A, mut body_B] = self.bodies
-                    .get_disjoint_mut([constraint.body_A, constraint.body_B])
+                    .get_disjoint_mut([constraint.body_A_id(), constraint.body_B_id()])
                     .expect("constraint body indices out of bounds or equal");
                 constraint.iteration(body_A, body_B, true);
             }
@@ -219,7 +230,7 @@ impl Solver2d {
         for i in 0..self.vel_iter_count {
             for constraint in &mut self.constraints {
                 let [mut body_A, mut body_B] = self.bodies
-                    .get_disjoint_mut([constraint.body_A, constraint.body_B])
+                    .get_disjoint_mut([constraint.body_A_id(), constraint.body_B_id()])
                     .expect("constraint body indices out of bounds or equal");
                 constraint.iteration(body_A, body_B, false);
             }
@@ -229,6 +240,14 @@ impl Solver2d {
             body.post_vel_solve(dt);
         }
     }
+}
+
+trait Constraint {
+    fn body_A_id(&self) -> usize;
+    fn body_B_id(&self) -> usize;
+    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d);
+    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64);
+    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool);
 }
 
 #[derive(Copy, Clone)]
@@ -263,7 +282,6 @@ pub struct PointJoint2d {
 }
 
 impl PointJoint2d {
-
     pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d) -> Self {
         PointJoint2d {
             body_A,
@@ -275,8 +293,15 @@ impl PointJoint2d {
             Cons1d: [Cons1d::new(); 2],
         }
     }
+}
 
-
+impl Constraint for PointJoint2d {
+    fn body_A_id(&self) -> usize {
+        self.body_A
+    }
+    fn body_B_id(&self) -> usize {
+        self.body_B
+    }
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
         let dv = 
             self.inv_m * self.Cons1d[0].jacobian.T() * self.Cons1d[0].impulse_mag +
@@ -348,10 +373,6 @@ impl PointJoint2d {
             body_B.ext_torque_d𝜔
         );
         
-
-        let mut v_lambda = Vec2::ZEROS;
-        let mut v_impulse = TMat::<f64, 6, 1>::ZEROS;
-
         for i in 0..2 {
             let cons = &self.Cons1d[i];
 
@@ -360,10 +381,121 @@ impl PointJoint2d {
             let lambda = cons.inv_eff_mass * rhs;
             let impulse = cons.jacobian.T() * lambda;
             dv += self.inv_m * impulse;
-
-            v_lambda.cols[0][i] = lambda;
-            v_impulse += impulse;
         }
+
+        body_A.delta_v = dv.v_slice(0..2, 0).into();
+        body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
+        body_B.delta_v = dv.v_slice(3..5, 0).into();
+        body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+}
+
+
+pub struct AngularJoint2d {
+    body_A: usize,
+    body_B: usize,
+    local_frame_body_A: Transform2d,
+    local_frame_body_B: Transform2d,
+    
+    inv_m: TMat<f64, 6, 6>,
+    Cons1d: Cons1d,
+
+    // Cons2d: Cons2d,
+}
+
+impl AngularJoint2d {
+
+    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d) -> Self {
+        AngularJoint2d {
+            body_A,
+            body_B,
+            local_frame_body_A,
+            local_frame_body_B,
+
+            inv_m: TMat::ZEROS,
+            Cons1d: Cons1d::new(),
+        }
+    }
+}
+
+impl Constraint for AngularJoint2d {
+    fn body_A_id(&self) -> usize {
+        self.body_A
+    }
+    fn body_B_id(&self) -> usize {
+        self.body_B
+    }
+
+    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
+        let dv = self.inv_m * self.Cons1d.jacobian.T() * self.Cons1d.impulse_mag;
+
+        body_A.delta_v += dv.v_slice(0..2, 0).into();
+        body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
+        body_B.delta_v += dv.v_slice(3..5, 0).into();
+        body_B.delta_𝜔 += Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+
+    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
+        
+        let p_A = body_A.pose * self.local_frame_body_A;
+        let p_B = body_B.pose * self.local_frame_body_B;
+
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
+
+        self.inv_m = d_concat!(
+            Mat22::diag([body_A.inv_mass; 2]),
+            body_A.inv_inertia,
+            Mat22::diag([body_B.inv_mass; 2]),
+            body_B.inv_inertia
+        );
+        
+        // C = o_A - o_B = 0
+        // J = [ 0, 1, 0, -1 ] in R^1x6
+        self.Cons1d.jacobian = h_concat!(
+            Vec2::ZEROS.T(), 
+            1.0, 
+            Vec2::ZEROS.T(), 
+            -1.0
+        );
+
+        let c_init = p_A.angle - p_B.angle;
+        let erp = 0.2;
+        self.Cons1d.bias = c_init * (erp / dt);
+
+        self.Cons1d.inv_eff_mass = 1.0 / (self.Cons1d.jacobian * self.inv_m * self.Cons1d.jacobian.T()).as_float();
+    }
+
+    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
+
+        let v = v_concat!(
+            body_A.v,
+            body_A.𝜔,
+            body_B.v,
+            body_B.𝜔
+        );
+
+        let mut dv = v_concat!(
+            body_A.delta_v,
+            body_A.delta_𝜔,
+            body_B.delta_v,
+            body_B.delta_𝜔
+        );
+
+        let ext_dv = v_concat!(
+            body_A.ext_force_dv,
+            body_A.ext_torque_d𝜔,
+            body_B.ext_force_dv,
+            body_B.ext_torque_d𝜔
+        );
+        
+        let cons = &self.Cons1d;
+
+        let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+        let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
+        let lambda = cons.inv_eff_mass * rhs;
+        let impulse = cons.jacobian.T() * lambda;
+        dv += self.inv_m * impulse;
 
         body_A.delta_v = dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
