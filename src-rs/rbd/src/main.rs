@@ -153,7 +153,7 @@ impl Rbd2dSample for AngularLimit2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
-    let sample = AngularLimit2dSample {};
+    let sample = AngularMotor2dSample {};
     sample.setup(&mut solver);
 
     let draw2d = Draw2d::new();
