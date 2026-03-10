@@ -215,8 +215,10 @@ impl Solver2d {
         let body_B = &self.bodies[body_B_id];
         let local_frame_body_A = body_A.pose.inv();
         let local_frame_body_B = body_B.pose.inv();
-        let mut constraint = AngularLimit2d::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, angle_min.to_radians(), angle_max.to_radians());
-        self.constraints.push(Box::new(constraint));
+        let mut constraint1 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMinConsFunc{ angle_min: angle_min.to_radians() }]);
+        let mut constraint2 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: angle_max.to_radians() }]);
+        self.constraints.push(Box::new(constraint1));
+        self.constraints.push(Box::new(constraint2));
         index
     }
 
@@ -511,47 +513,87 @@ impl EqualConsFunc for RotMotorConsFunc {
     }
 }
 
-pub struct AngularLimit2d {
+pub trait InequalConsFunc {
+    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6>;
+    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64;
+    fn max_accum_lambda(&self, dt: f64) -> f64;
+}
+
+#[derive(Copy, Clone)]
+struct InequalConsData {
+    inv_eff_mass: f64,
+    jacobian: TMat<f64, 1, 6>,
+    bias: f64,
+    accum_lambda: f64,
+    max_accum_lambda: f64,
+    need_resolve: bool,
+}
+
+impl InequalConsData {
+    pub fn new() -> Self {
+        InequalConsData {
+            inv_eff_mass: 1.0,
+            jacobian: TMat::ZEROS,
+            bias: 0.0,
+            accum_lambda: 0.0,
+            max_accum_lambda: f64::INFINITY,
+            need_resolve: true,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.inv_eff_mass = 1.0;
+        self.jacobian = TMat::ZEROS;
+        self.bias = 0.0;
+        self.accum_lambda = 0.0;
+        self.max_accum_lambda = f64::INFINITY;
+        self.need_resolve = true;
+    }
+}
+
+pub struct InequalConstraints<T: InequalConsFunc, const N: usize> {
     body_A: usize,
     body_B: usize,
     local_frame_body_A: Transform2d,
     local_frame_body_B: Transform2d,
     
-    angle_min: f64,
-    angle_max: f64,
-    
     inv_m: TMat<f64, 6, 6>,
-    constraint_1d: [EqualConsData; 2],
-
-    // Cons2d: Cons2d,
+    constraint_1d: [InequalConsData; N],
+    pub cons_funcs: [T; N],
 }
 
-impl AngularLimit2d {
-
-    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, angle_min: f64, angle_max: f64) -> Self {
-        AngularLimit2d {
+impl <T: InequalConsFunc, const N: usize> InequalConstraints<T, N> {
+    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, cons_funcs: [T; N]) -> Self {
+        InequalConstraints {
             body_A,
             body_B,
             local_frame_body_A,
             local_frame_body_B,
 
-            angle_min,
-            angle_max,
             inv_m: TMat::ZEROS,
-            constraint_1d: [EqualConsData::new(), EqualConsData::new()],
+            constraint_1d: [InequalConsData::new(); N],
+            cons_funcs,
         }
     }
 }
 
-impl Constraint for AngularLimit2d {
+impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N> {
     fn body_A_id(&self) -> usize {
         self.body_A
     }
     fn body_B_id(&self) -> usize {
         self.body_B
     }
+    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
+        let dv = 
+            self.inv_m * self.constraint_1d[0].jacobian.T() * self.constraint_1d[0].accum_lambda +
+            self.inv_m * self.constraint_1d[1].jacobian.T() * self.constraint_1d[1].accum_lambda;
 
-    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {}
+        body_A.delta_v += dv.v_slice(0..2, 0).into();
+        body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
+        body_B.delta_v += dv.v_slice(3..5, 0).into();
+        body_B.delta_𝜔 += Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
 
     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
         
@@ -561,8 +603,6 @@ impl Constraint for AngularLimit2d {
         let r_A = p_A.origin - body_A.pose.origin;
         let r_B = p_B.origin - body_B.pose.origin;
 
-        let angle_diff = p_A.angle - p_B.angle;
-
         self.inv_m = d_concat!(
             Mat22::diag([body_A.inv_mass; 2]),
             body_A.inv_inertia,
@@ -570,36 +610,21 @@ impl Constraint for AngularLimit2d {
             body_B.inv_inertia
         );
 
-        for i in 0..2 {
-            let is_min = i == 0;
-            let cons = &mut self.constraint_1d[i];
-
-            cons.reset();
-
-            // min:
-            // C = (o_A - o_B) - angle_min >= 0
-            // J = [ 0, 1, 0, -1 ] in R^1x6
-            // max:
-            // C = angle_max - (o_A - o_B) >= 0
-            // J = [ 0, -1, 0, 1 ] in R^1x6
-            cons.jacobian = h_concat!(
-                Vec2::ZEROS.T(), 
-                if is_min { 1.0 } else { -1.0 }, 
-                Vec2::ZEROS.T(), 
-                if is_min { -1.0 } else { 1.0 }
-            );
-
-            let c_init = if is_min { (p_A.angle - p_B.angle) - self.angle_min } else { self.angle_max - (p_A.angle - p_B.angle) };
-
+        for i in 0..N {
+            self.constraint_1d[i].reset();
+            self.constraint_1d[i].jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
+            let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
             if c_init >= 0.0 {
-                cons.need_resolve = false;
+                self.constraint_1d[i].need_resolve = false;
+                continue;
             }
 
-            let erp = 1.0;
-            cons.bias = c_init * (erp / dt);
-
-            cons.inv_eff_mass = 1.0 / (cons.jacobian * self.inv_m * cons.jacobian.T()).as_float();
-        }
+            let erp = 0.2;
+            self.constraint_1d[i].bias = c_init * (erp / dt);
+            self.constraint_1d[i].inv_eff_mass = 1.0 / (self.constraint_1d[i].jacobian * self.inv_m * self.constraint_1d[i].jacobian.T()).as_float();
+            self.constraint_1d[i].max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
+            self.constraint_1d[i].accum_lambda = 0.0;
+        }  
     }
 
     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
@@ -625,7 +650,7 @@ impl Constraint for AngularLimit2d {
             body_B.ext_torque_d𝜔
         );
         
-        for i in 0..2 {
+        for i in 0..N {
             let cons = &mut self.constraint_1d[i];
 
             if !cons.need_resolve {
@@ -640,7 +665,7 @@ impl Constraint for AngularLimit2d {
             cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
             let new_lambda = cons.accum_lambda - last_accum_lambda;
             let impulse = cons.jacobian.T() * new_lambda;
-
+    
             dv += self.inv_m * impulse;
         }
 
@@ -648,5 +673,57 @@ impl Constraint for AngularLimit2d {
         body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
         body_B.delta_v = dv.v_slice(3..5, 0).into();
         body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+}
+
+struct AngleMinConsFunc {
+    angle_min: f64,
+}
+
+impl InequalConsFunc for AngleMinConsFunc {
+    // C = (o_A - o_B) - angle_min >= 0
+    // J = [ 0, 1, 0, -1 ] in R^1x6
+    
+    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+        h_concat!(
+            Vec2::ZEROS.T(), 
+            1.0, 
+            Vec2::ZEROS.T(), 
+            -1.0
+        )
+    }
+
+    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+        (p_A.angle - p_B.angle) - self.angle_min
+    }
+
+    fn max_accum_lambda(&self, dt: f64) -> f64 {
+        f64::INFINITY
+    }
+}
+
+struct AngleMaxConsFunc {
+    angle_max: f64,
+}
+
+impl InequalConsFunc for AngleMaxConsFunc {
+    // C = angle_max - (o_A - o_B) >= 0
+    // J = [ 0, -1, 0, 1 ] in R^1x6
+
+    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+        h_concat!(
+            Vec2::ZEROS.T(), 
+            -1.0, 
+            Vec2::ZEROS.T(), 
+            1.0
+        )
+    }
+
+    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+        self.angle_max - (p_A.angle - p_B.angle)
+    }
+
+    fn max_accum_lambda(&self, dt: f64) -> f64 {
+        f64::INFINITY
     }
 }

@@ -140,8 +140,8 @@ impl Rbd2dSample for AngularLimit2dSample {
         ));
     
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
-        let cons2 = solver.add_angular_motor(body1, body2, 1000.0, -100.0);
-        let cons2 = solver.add_angular_limit(body1, body2, -60.0, 180.0);
+        let cons2 = solver.add_angular_motor(body1, body2, 1000.0, 100.0);
+        let cons2 = solver.add_angular_limit(body1, body2, -60.0, 30.0);
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
@@ -153,7 +153,7 @@ impl Rbd2dSample for AngularLimit2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
-    let sample = AngularMotor2dSample {};
+    let sample = AngularLimit2dSample {};
     sample.setup(&mut solver);
 
     let draw2d = Draw2d::new();
