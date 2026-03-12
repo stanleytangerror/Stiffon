@@ -181,7 +181,7 @@ impl Solver2d {
         let local_frame_body_A = body_A.pose.inv() * Transform2d::new(pos_world_A, 0.0);
         let local_frame_body_B = body_B.pose.inv() * Transform2d::new(pos_world_B, 0.0);
 
-        let mut constraint = EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n: Vec2::unit_x() }, Pos1dEqConsFunc{ n: Vec2::unit_y() }]);
+        let mut constraint = EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_x() }, Pos1dEqConsFunc{ n_local: Vec2::unit_y() }]);
         self.constraints.push(Box::new(constraint));
 
         index
@@ -206,6 +206,35 @@ impl Solver2d {
         let local_frame_body_B = body_B.pose.inv();
         let mut constraint = EqualConstraints::<RotMotorConsFunc, 1>::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotMotorConsFunc{ torque_max, 𝜔: 𝜔.to_radians() }]);
         self.constraints.push(Box::new(constraint));
+        index
+    }
+
+    pub fn add_prismatic_joint(&mut self, 
+        body_A_id: usize, body_B_id: usize, 
+        pos_world_A: Vec2, pos_world_B: Vec2, 
+        dir_world_A: Vec2, dir_world_B: Vec2,
+        has_motor: bool, force_max: Option<f64>, v: Option<f64>,
+        has_limit: bool, limit_min: Option<f64>, limit_max: Option<f64>,
+    ) -> usize {
+        let index = self.constraints.len();
+        let body_A = &self.bodies[body_A_id];
+        let body_B = &self.bodies[body_B_id];
+
+        let angle_local_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
+        let angle_local_B = body_B.pose.inv().transform_vector(dir_world_B).angle();
+        let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
+        let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
+        
+
+        let local_frame_body_A = Transform2d::new(pos_local_A, angle_local_A);
+        let local_frame_body_B = Transform2d::new(pos_local_B, angle_local_B);
+
+        self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
+        self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotEqConsFunc{}])));
+        
+        if has_motor {
+            self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMotorFunc{ n_local: Vec2::unit_x(), force_max: force_max.unwrap(), v: v.unwrap() }])));
+        }
         index
     }
 
@@ -431,7 +460,7 @@ impl <T: EqualConsFunc, const N: usize> Constraint for EqualConstraints<T, N> {
 
 
 struct Pos1dEqConsFunc {
-    pub n: Vec2,
+    pub n_local: Vec2,
 }
 
 impl EqualConsFunc for Pos1dEqConsFunc {
@@ -441,22 +470,61 @@ impl EqualConsFunc for Pos1dEqConsFunc {
         let r_A = p_A.origin - body_A.pose.origin;
         let r_B = p_B.origin - body_B.pose.origin;
 
+        let n = p_A.transform_vector(self.n_local);
+
         h_concat!(
-            self.n.T(), 
-            r_A.cross(self.n), 
-            -self.n.T(), 
-            -r_B.cross(self.n)
+            n.T(), 
+            r_A.cross(n), 
+            -n.T(), 
+            -r_B.cross(n)
         )
     }
 
     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        (self.n.T() * (p_A.origin - p_B.origin)).as_float()
+        let n = p_A.transform_vector(self.n_local);
+        (n.T() * (p_A.origin - p_B.origin)).as_float()
     }
 
     fn max_accum_lambda(&self, dt: f64) -> f64 {
         f64::INFINITY
     }
 }
+
+
+struct Pos1dMotorFunc {
+    pub n_local: Vec2,
+    pub force_max: f64,
+    pub v: f64,
+}
+
+impl EqualConsFunc for Pos1dMotorFunc {
+    // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - n^T pos_diff - v*dt = 0
+    // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
+    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
+
+        let n = body_A.pose.transform_vector(self.n_local);
+
+        h_concat!(
+            n.T(), 
+            r_A.cross(n), 
+            -n.T(), 
+            -r_B.cross(n)
+        )
+    }
+
+    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+        let n = body_A.pose.transform_vector(self.n_local);
+        let pos_diff = p_A.origin - p_B.origin;
+        (n.T() * (p_A.origin - p_B.origin) - n.T() * pos_diff).as_float() - self.v * dt
+    }
+
+    fn max_accum_lambda(&self, dt: f64) -> f64 {
+        f64::INFINITY
+    }
+}
+
 
 struct RotEqConsFunc {}
 

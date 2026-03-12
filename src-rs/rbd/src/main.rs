@@ -150,10 +150,48 @@ impl Rbd2dSample for AngularLimit2dSample {
 }
 
 
+struct Prismatic2dSample {
+}
+
+impl Rbd2dSample for Prismatic2dSample {
+    fn setup(&self, solver: &mut Solver2d) {
+        let body1 = solver.add_body(Body2d::new(
+            INFINITY,
+            INFINITY,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(Vec2::ZEROS, 0.0),
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+        
+        let body2 = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(mvec!(3.0, 0.0), 0.0),
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+    
+        solver.add_prismatic_joint(
+            body1, body2, 
+            mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
+            mvec!(1.0, 0.4), mvec!(1.0, -0.4),
+            false, None, None, 
+            false, None, None
+        );
+    }
+
+    fn step(&self, solver: &mut Solver2d, dt: f64) {
+        solver.step(dt);
+    }
+}
+
+
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
-    let sample = AngularLimit2dSample {};
+    let sample = Prismatic2dSample {};
     sample.setup(&mut solver);
 
     let draw2d = Draw2d::new();

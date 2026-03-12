@@ -65,6 +65,9 @@ impl<T: FloatNum, const N: usize> TVec<T, N> {
     pub fn norm(self) -> T {
         (self.cols[0].iter().map(|x: &T| *x * *x).sum::<T>()).sqrt()
     }
+    pub fn normalize(self) -> Self {
+        self * (T::ONE / self.norm())
+    }
     #[inline(always)]
     pub fn x(&self) -> T {
         self.cols[0][0]
@@ -130,6 +133,11 @@ impl<T: FloatNum> TVec2<T> {
         TVec2::<T>::new(
             [self.x() * cos - self.y() * sin, self.x() * sin + self.y() * cos]
         )
+    }
+
+    pub fn angle(self) -> T {
+        let normalized = self.normalize();
+        normalized.y().atan2(normalized.x())
     }
 }
 
