@@ -238,6 +238,36 @@ impl Solver2d {
         index
     }
 
+    pub fn add_revolute_joint(&mut self, 
+        body_A_id: usize, body_B_id: usize, 
+        pos_world_A: Vec2, pos_world_B: Vec2, 
+        has_motor: bool, torque_max: Option<f64>, 𝜔: Option<f64>,
+        has_limit: bool, limit_min: Option<f64>, limit_max: Option<f64>,
+    ) -> usize {
+        let index = self.constraints.len();
+        let body_A = &self.bodies[body_A_id];
+        let body_B = &self.bodies[body_B_id];
+
+        let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
+        let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
+        
+
+        let local_frame_body_A = Transform2d::new(pos_local_A, 0.0);
+        let local_frame_body_B = Transform2d::new(pos_local_B, 0.0);
+
+        self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_x() }, Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
+        
+        if has_motor {
+            self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotMotorConsFunc{ torque_max: torque_max.unwrap(), 𝜔: 𝜔.unwrap().to_radians() }])));
+        }
+        if has_limit {
+            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMinConsFunc{ angle_min: limit_min.unwrap().to_radians() }])));
+            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: limit_max.unwrap().to_radians() }])));
+        }
+        index
+    }
+
+
     pub fn add_angular_limit(&mut self, body_A_id: usize, body_B_id: usize, angle_min: f64, angle_max: f64) -> usize {
         let index = self.constraints.len();
         let body_A = &self.bodies[body_A_id];

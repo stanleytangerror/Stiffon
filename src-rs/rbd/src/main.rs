@@ -188,10 +188,47 @@ impl Rbd2dSample for Prismatic2dSample {
 }
 
 
+struct Revolute2dSample {
+}
+
+impl Rbd2dSample for Revolute2dSample {
+    fn setup(&self, solver: &mut Solver2d) {
+        let body1 = solver.add_body(Body2d::new(
+            INFINITY,
+            INFINITY,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(Vec2::ZEROS, 0.0),
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+        
+        let body2 = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(mvec!(3.0, 0.0), 0.0),
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+    
+        solver.add_revolute_joint(
+            body1, body2, 
+            mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
+            true, Some(500.0), Some(100.0), 
+            true, Some(-40.0), Some(60.0)
+        );
+    }
+
+    fn step(&self, solver: &mut Solver2d, dt: f64) {
+        solver.step(dt);
+    }
+}
+
+
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
-    let sample = Prismatic2dSample {};
+    let sample = Revolute2dSample {};
     sample.setup(&mut solver);
 
     let draw2d = Draw2d::new();
