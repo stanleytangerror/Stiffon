@@ -212,7 +212,7 @@ impl Solver2d {
     pub fn add_prismatic_joint(&mut self, 
         body_A_id: usize, body_B_id: usize, 
         pos_world_A: Vec2, pos_world_B: Vec2, 
-        dir_world_A: Vec2, dir_world_B: Vec2,
+        dir_world_A: Vec2, angle_A_minus_B: f64,
         has_motor: bool, force_max: Option<f64>, v: Option<f64>,
         has_limit: bool, limit_min: Option<f64>, limit_max: Option<f64>,
     ) -> usize {
@@ -221,7 +221,7 @@ impl Solver2d {
         let body_B = &self.bodies[body_B_id];
 
         let angle_local_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
-        let angle_local_B = body_B.pose.inv().transform_vector(dir_world_B).angle();
+        let angle_local_B = angle_local_A + angle_A_minus_B.to_radians();
         let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
         let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
         

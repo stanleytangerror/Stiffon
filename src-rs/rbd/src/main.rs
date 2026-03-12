@@ -176,7 +176,7 @@ impl Rbd2dSample for Prismatic2dSample {
         solver.add_prismatic_joint(
             body1, body2, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
-            mvec!(1.0, 0.4), mvec!(1.0, -0.4),
+            mvec!(1.0, 0.4), 90.0,
             false, None, None, 
             false, None, None
         );
