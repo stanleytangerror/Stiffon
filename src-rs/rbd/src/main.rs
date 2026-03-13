@@ -176,9 +176,9 @@ impl Rbd2dSample for Prismatic2dSample {
         solver.add_prismatic_joint(
             body1, body2, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
-            mvec!(1.0, 0.4), 90.0,
-            false, None, None, 
-            false, None, None
+            mvec!(1.0, 0.4), 10.0,
+            true, Some(100.0), Some(-3.0), 
+            true, Some(-1.0), Some(1.0)
         );
     }
 
@@ -228,7 +228,7 @@ impl Rbd2dSample for Revolute2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
-    let sample = Revolute2dSample {};
+    let sample = Prismatic2dSample {};
     sample.setup(&mut solver);
 
     let draw2d = Draw2d::new();

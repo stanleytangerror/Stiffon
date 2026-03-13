@@ -214,7 +214,7 @@ impl Solver2d {
         pos_world_A: Vec2, pos_world_B: Vec2, 
         dir_world_A: Vec2, angle_A_minus_B: f64,
         has_motor: bool, force_max: Option<f64>, v: Option<f64>,
-        has_limit: bool, limit_min: Option<f64>, limit_max: Option<f64>,
+        has_limit: bool, dist_min: Option<f64>, dist_max: Option<f64>,
     ) -> usize {
         let index = self.constraints.len();
         let body_A = &self.bodies[body_A_id];
@@ -235,6 +235,12 @@ impl Solver2d {
         if has_motor {
             self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMotorFunc{ n_local: Vec2::unit_x(), force_max: force_max.unwrap(), v: v.unwrap() }])));
         }
+
+        if has_limit {
+            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMinConsFunc{ n_local: Vec2::unit_x(), dist_min: dist_min.unwrap() }])));
+            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMaxConsFunc{ n_local: Vec2::unit_x(), dist_max: dist_max.unwrap() }])));
+        }
+
         index
     }
 
@@ -534,7 +540,7 @@ impl EqualConsFunc for Pos1dMotorFunc {
         let r_A = p_A.origin - body_A.pose.origin;
         let r_B = p_B.origin - body_B.pose.origin;
 
-        let n = body_A.pose.transform_vector(self.n_local);
+        let n = p_A.transform_vector(self.n_local);
 
         h_concat!(
             n.T(), 
@@ -545,7 +551,7 @@ impl EqualConsFunc for Pos1dMotorFunc {
     }
 
     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        let n = body_A.pose.transform_vector(self.n_local);
+        let n = p_A.transform_vector(self.n_local);
         let pos_diff = p_A.origin - p_B.origin;
         (n.T() * (p_A.origin - p_B.origin) - n.T() * pos_diff).as_float() - self.v * dt
     }
@@ -773,6 +779,74 @@ impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N
         body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
     }
 }
+
+
+struct Pos1dMinConsFunc {
+    n_local: Vec2,
+    dist_min: f64,
+}
+
+impl InequalConsFunc for Pos1dMinConsFunc {
+    // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - dist_min >= 0
+    // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
+    
+    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
+
+        let n = p_A.transform_vector(self.n_local);
+
+        h_concat!(
+            n.T(), 
+            r_A.cross(n), 
+            -n.T(), 
+            -r_B.cross(n)
+        )
+    }
+
+    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+        let n = p_A.transform_vector(self.n_local);
+        (n.T() * (p_A.origin - p_B.origin)).as_float() - self.dist_min
+    }
+
+    fn max_accum_lambda(&self, dt: f64) -> f64 {
+        f64::INFINITY
+    }
+}
+
+struct Pos1dMaxConsFunc {
+    n_local: Vec2,
+    dist_max: f64,
+}
+
+impl InequalConsFunc for Pos1dMaxConsFunc {
+    // C = dist_min - n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) >= 0
+    // J = [ -n^T, -(r_A x n)^T, n^T, (r_B x n)^T ]
+    
+    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+        let r_A = p_A.origin - body_A.pose.origin;
+        let r_B = p_B.origin - body_B.pose.origin;
+
+        let n = p_A.transform_vector(self.n_local);
+
+        h_concat!(
+            -n.T(), 
+            -r_A.cross(n), 
+            n.T(), 
+            r_B.cross(n)
+        )
+    }
+
+    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+        let n = p_A.transform_vector(self.n_local);
+        self.dist_max - (n.T() * (p_A.origin - p_B.origin)).as_float()
+    }
+
+    fn max_accum_lambda(&self, dt: f64) -> f64 {
+        f64::INFINITY
+    }
+}
+
 
 struct AngleMinConsFunc {
     angle_min: f64,
