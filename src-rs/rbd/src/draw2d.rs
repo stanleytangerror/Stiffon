@@ -100,6 +100,11 @@ impl Draw2d {
         Draw2d { camera, pixel_size }
     }
 
+    pub fn set_camera_width(&mut self, width: f64) {
+        self.camera.width = width;
+        self.camera.on_changed();
+    }
+
     pub fn draw(&self, solver: &Solver2d) {
         self.begin_frame();
         // self.draw_test();
@@ -109,20 +114,7 @@ impl Draw2d {
     fn begin_frame(&self) {
         mq::clear_background(mq::BLACK);
     }
-
-    fn draw_test(&self) {
-        let rect_x = mq::screen_width() * 0.5 - 50.0;
-        let rect_y = mq::screen_height() * 0.5 - 50.0;
-        let rect_width = 100.0;
-        let rect_height = 80.0;
-
-        mq::draw_rectangle(rect_x, rect_y, rect_width, rect_height, mq::RED);
-        mq::draw_rectangle_lines(rect_x, rect_y, rect_width, rect_height, 3.0, mq::WHITE);
-        mq::draw_rectangle(rect_x + 150.0, rect_y, rect_width, rect_height, mq::BLUE);
-
-        mq::draw_rectangle(rect_x, 0.0, rect_width, rect_height, mq::RED);
-    }
-    
+   
     fn draw_solver(&self,solver: &Solver2d) {
         for body in solver.bodies() {
             let geometry = body.geometry();

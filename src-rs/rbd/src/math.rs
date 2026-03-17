@@ -363,12 +363,12 @@ impl<T: FloatNum, const R: usize, const C: usize> AsMat<T, R, C> for TMat<T, R, 
     }
 }
 
-pub trait AsFloat<T: FloatNum, const R: usize, const C: usize> {
+pub trait AsFloat<T: FloatNum> {
     fn as_float(&self) -> T;
 }
 
 
-impl<T: FloatNum> AsFloat<T, 1, 1> for TMat<T, 1, 1> {
+impl<T: FloatNum> AsFloat<T> for TMat<T, 1, 1> {
     fn as_float(&self) -> T {
         self.cols[0][0]
     }
@@ -539,6 +539,214 @@ impl<T: FloatNum, const R1: usize, const C1: usize, const R2: usize, const C2: u
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TDynMat<T: FloatNum> {
+    pub cols: Vec<Vec<T>>,
+    pub r: usize,
+    pub c: usize,
+}
+
+impl<T: FloatNum> TDynMat<T> {
+    
+    pub fn zeros(r: usize, c: usize) -> Self {
+        TDynMat { cols: vec![vec![T::ZERO; r]; c], r, c }
+    }
+
+    pub fn v(&self, i: usize, j: usize) -> T {
+        self.cols[j][i]
+    }
+
+    pub fn v_mut(&mut self, i: usize, j: usize) -> &mut T {
+        &mut self.cols[j][i]
+    }
+
+    pub fn n_rows(&self) -> usize {
+        self.r
+    }
+
+    pub fn n_cols(&self) -> usize {
+        self.c
+    }
+
+    pub fn row(&self, i: usize) -> TDynMat<T> {
+        TDynMat { cols: self.cols.iter().map(|row| vec![row[i]]).collect(), r: self.n_rows(), c: 1 }
+    }
+
+    pub fn col(&self, i: usize) -> TDynMat<T> {
+        TDynMat { cols: vec![self.cols[i].clone()], r: 1, c: self.n_cols() }
+    }
+
+    pub fn T(&self) -> TDynMat<T> {
+        let mut mat = TDynMat::<T>::zeros(self.n_cols(), self.n_rows());
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *mat.v_mut(j, i) = self.v(i, j);
+            }
+        }
+        mat
+    }
+
+    pub fn slice(
+        &self,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) -> TDynMat<T> {
+        let r = rows.len();
+        let c = cols.len();
+        TDynMat {
+            cols: if r == 0 || c == 0 {
+                vec![]
+            } else {
+                self.cols[cols].iter().map(|row| row[rows.clone()].to_vec()).collect()
+            },
+            r,
+            c,
+        }
+    }
+
+    pub fn h_slice(&self, rows: usize, cols: Range<usize>) -> TDynMat<T> {
+        self.slice(rows..rows+1, cols)
+    }
+
+    pub fn v_slice(&self, rows: Range<usize>, cols: usize) -> TDynMat<T> {
+        self.slice(rows, cols..cols+1)
+    }
+
+    pub fn norm(&self) -> T {
+        assert_eq!(self.n_cols(), 1, "matrix is not vector");
+        let mut norm = T::ZERO;
+        for i in 0..self.n_rows() {
+            norm += self.v(i, 0) * self.v(i, 0);
+        }
+        norm.sqrt()
+    }
+}
+
+
+impl<T: FloatNum> std::ops::Add for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn add(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
+        assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
+        
+        let mut mat = TDynMat::<T>::zeros(self.n_rows(), self.n_cols());
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *mat.v_mut(i, j) = self.v(i, j) + rhs.v(i, j);
+            }
+        }
+        mat
+    }
+}
+
+impl<T: FloatNum> std::ops::AddAssign for TDynMat<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
+        assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
+        
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *self.v_mut(i, j) += rhs.v(i, j);
+            }
+        }
+    }
+}
+
+impl<T: FloatNum> std::ops::Sub for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn sub(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
+        assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
+        
+        let mut mat = TDynMat::<T>::zeros(self.n_rows(), self.n_cols());
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *mat.v_mut(i, j) = self.v(i, j) - rhs.v(i, j);
+            }
+        }
+        mat
+    }
+}
+
+impl<T: FloatNum> std::ops::SubAssign for TDynMat<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
+        assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
+        
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *self.v_mut(i, j) -= rhs.v(i, j);
+            }
+        }
+    }
+}
+
+impl<T: FloatNum> std::ops::Mul<TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn mul(self, rhs: TDynMat<T>) -> Self::Output {
+        assert_eq!(self.n_cols(), rhs.n_rows(), "matrix dimensions do not match");
+        
+        let mut mat = TDynMat::<T>::zeros(self.n_rows(), rhs.n_cols());
+        for i in 0..self.n_rows() {
+            for j in 0..rhs.n_cols() {
+                let mut d = T::ZERO;
+                for k in 0..self.n_cols() {
+                    d += self.v(i, k) * rhs.v(k, j);
+                }
+                *mat.v_mut(i, j) = d;
+            }
+        }
+        mat
+    }
+}
+
+impl<T: FloatNum> std::ops::Mul<T> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn mul(self, rhs: T) -> Self::Output {
+        let mut mat = TDynMat::<T>::zeros(self.n_rows(), self.n_cols());
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *mat.v_mut(i, j) = self.v(i, j) * rhs;
+            }
+        }
+        mat
+    }
+}
+
+impl<T: FloatNum> std::ops::MulAssign<T> for TDynMat<T> {
+    fn mul_assign(&mut self, rhs: T) {
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *self.v_mut(i, j) *= rhs;
+            }
+        }
+    }
+}
+
+impl<T: FloatNum> std::ops::Neg for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn neg(self) -> Self::Output {
+        let mut mat = TDynMat::<T>::zeros(self.n_rows(), self.n_cols());
+        for i in 0..self.n_rows() {
+            for j in 0..self.n_cols() {
+                *mat.v_mut(i, j) = -self.v(i, j);
+            }
+        }
+        mat
+    }
+}
+
+impl<T: FloatNum> AsFloat<T> for TDynMat<T> {
+    fn as_float(&self) -> T {
+        assert_eq!(self.n_rows(), 1, "matrix is not 1x1");
+        assert_eq!(self.n_cols(), 1, "matrix is not 1x1");
+        self.v(0, 0)
+    }
+}
+
+
+
 // --- TTransform2d ---
 #[derive(Clone, Copy, Debug)]
 pub struct TTransform2d<T: FloatNum> {
@@ -588,6 +796,7 @@ impl<T: FloatNum> std::ops::Mul<TTransform2d<T>> for TTransform2d<T> {
         }
     }
 }
+
 
 // #[macro_export]
 // macro_rules! slice {
@@ -656,6 +865,41 @@ pub fn solve_gauss_seidel<T: FloatNum, const R: usize, const C: usize>(
     }
     x
 }
+
+
+pub fn solve_gauss_seidel_dyn<T: FloatNum>(
+    A: TDynMat<T>,
+    b: TDynMat<T>,
+    max_iterations: usize,
+    tolerance: T,
+) -> TDynMat<T> {
+
+    let r = A.n_rows();
+    let c = A.n_cols();
+    assert_eq!(A.n_rows(), b.n_rows(), "A and b have different number of rows");
+
+    // A = D + L + U
+    // x_next = (D + L)^{-1} @ (-U @ x_prev + b)
+
+    let mut x = TDynMat::<T>::zeros(c, 1);
+    let mut iterations = 0;
+    while iterations < max_iterations {
+        let mut x_new = TDynMat::<T>::zeros(c, 1);
+        for i in 0..r {
+            *x_new.v_mut(i, 0) = (b.v(i, 0) 
+                - (A.h_slice(i, 0..i) * x_new.v_slice(0..i, 0)).as_float()
+                - (A.h_slice(i, i+1..c) * x.v_slice(i+1..c, 0)).as_float()) / A.v(i, i);
+        }
+        x = x_new;
+        let err = ((A.clone() * x.clone()) - b.clone()).norm();
+        if err < tolerance {
+            break;
+        }
+        iterations += 1;
+    }
+    x
+}
+
 
 #[cfg(test)]
 mod tests {

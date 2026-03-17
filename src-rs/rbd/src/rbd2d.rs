@@ -139,6 +139,19 @@ impl Body2d {
         self.ext_torque_d𝜔 = 0.0;
     }
 
+    pub fn post_global_solve(&mut self, dt: f64) {
+        self.v = self.v + self.delta_v + self.ext_force_dv;
+        self.𝜔 = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
+
+        self.pose.origin += self.v * dt;
+        self.pose.angle += self.𝜔 * dt;
+
+        self.delta_v = Vec2::ZEROS;
+        self.delta_𝜔 = 0.0;
+        self.ext_force_dv = Vec2::ZEROS;
+        self.ext_torque_d𝜔 = 0.0;
+    }
+
     pub fn pose(&self) -> Transform2d {
         self.pose
     }
@@ -165,6 +178,11 @@ impl Solver2d {
             pos_iter_count: 1,
             vel_iter_count: 1,
         }
+    }
+
+    pub fn set_iteration_count(&mut self, pos_iter_count: usize, vel_iter_count: usize) {
+        self.pos_iter_count = pos_iter_count;
+        self.vel_iter_count = vel_iter_count;
     }
 
     pub fn add_body(&mut self, body: Body2d) -> usize {
@@ -212,7 +230,8 @@ impl Solver2d {
     pub fn add_prismatic_joint(&mut self, 
         body_A_id: usize, body_B_id: usize, 
         pos_world_A: Vec2, pos_world_B: Vec2, 
-        dir_world_A: Vec2, angle_A_minus_B: f64,
+        dir_world_A: Vec2, 
+        has_angle_lock: bool, angle_A_minus_B: Option<f64>,
         has_motor: bool, force_max: Option<f64>, v: Option<f64>,
         has_limit: bool, dist_min: Option<f64>, dist_max: Option<f64>,
     ) -> usize {
@@ -221,17 +240,19 @@ impl Solver2d {
         let body_B = &self.bodies[body_B_id];
 
         let angle_local_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
-        let angle_local_B = angle_local_A + angle_A_minus_B.to_radians();
+        let angle_local_B = angle_local_A + angle_A_minus_B.unwrap_or(0.0).to_radians();
         let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
         let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
-        
 
         let local_frame_body_A = Transform2d::new(pos_local_A, angle_local_A);
         let local_frame_body_B = Transform2d::new(pos_local_B, angle_local_B);
 
         self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
-        self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotEqConsFunc{}])));
-        
+
+        if has_angle_lock {
+            self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotEqConsFunc{}])));
+        }
+
         if has_motor {
             self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMotorFunc{ n_local: Vec2::unit_x(), force_max: force_max.unwrap(), v: v.unwrap() }])));
         }
@@ -291,7 +312,7 @@ impl Solver2d {
         &self.bodies
     }
 
-    pub fn step(&mut self, dt: f64) {
+    pub fn step_gs(&mut self, dt: f64) {
         for body in &mut self.bodies {
             body.apply_gravity(self.gravity);
         }
@@ -330,6 +351,72 @@ impl Solver2d {
             body.post_vel_solve(dt);
         }
     }
+
+    pub fn step_global(&mut self, dt: f64) {
+        for body in &mut self.bodies {
+            body.apply_gravity(self.gravity);
+        }
+
+        for body in &mut self.bodies {
+            body.pre_solve(dt);
+        }
+
+        for constraint in &mut self.constraints {
+            constraint.setup(&self.bodies[constraint.body_A_id()], &self.bodies[constraint.body_B_id()], dt);
+        }
+
+        let mut n_constraints = 0;
+        for constraint in &mut self.constraints {
+            n_constraints += constraint.get_dimension();
+        }
+        let n_bodies = self.bodies.len();
+        
+        let mut j = TDynMat::<f64>::zeros(n_constraints, 3 * n_bodies);
+        let mut inv_m = TDynMat::<f64>::zeros(3 * n_bodies, 3 * n_bodies);
+        let mut v = TDynMat::<f64>::zeros(3 * n_bodies, 1);
+
+        for i in 0..n_bodies {
+            *inv_m.v_mut(i * 3, i * 3) = self.bodies[i].inv_mass;
+            *inv_m.v_mut(i * 3 + 1, i * 3 + 1) = self.bodies[i].inv_mass;
+            *inv_m.v_mut(i * 3 + 2, i * 3 + 2) = self.bodies[i].inv_inertia;
+
+            *v.v_mut(i * 3 + 0, 0) = self.bodies[i].v.x();
+            *v.v_mut(i * 3 + 1, 0) = self.bodies[i].v.y();
+            *v.v_mut(i * 3 + 2, 0) = self.bodies[i].𝜔;
+        }
+
+        let mut i_cons = 0;
+        for constraint in &mut self.constraints {
+            for i in 0..constraint.get_dimension() {
+                let local_j = constraint.get_jacobian(i);
+                let body_A_id = constraint.body_A_id();
+                let body_B_id = constraint.body_B_id();
+                *j.v_mut(i_cons, body_A_id * 3 + 0) = local_j.v(0, 0);
+                *j.v_mut(i_cons, body_A_id * 3 + 1) = local_j.v(0, 1);
+                *j.v_mut(i_cons, body_A_id * 3 + 2) = local_j.v(0, 2);
+                *j.v_mut(i_cons, body_B_id * 3 + 0) = local_j.v(0, 3);
+                *j.v_mut(i_cons, body_B_id * 3 + 1) = local_j.v(0, 4);
+                *j.v_mut(i_cons, body_B_id * 3 + 2) = local_j.v(0, 5);
+                i_cons += 1;
+            }
+        }
+
+        let k = j.clone() * inv_m.clone() * j.clone().T();
+        let b = -j.clone() * v.clone();
+
+        let lambda = solve_gauss_seidel_dyn(k, b, 100, 1e-6);
+        let dv = inv_m.clone() * (j.T() * lambda.clone());
+
+        for i in 0..n_bodies {
+            *self.bodies[i].delta_v.v_mut(0, 0) = dv.v(i*3, 0);
+            *self.bodies[i].delta_v.v_mut(1, 0) = dv.v(i*3+1, 0);
+            self.bodies[i].delta_𝜔 = dv.v(i*3+2, 0);
+        }
+
+        for body in &mut self.bodies {
+            body.post_global_solve(dt);
+        }
+    }
 }
 
 trait Constraint {
@@ -338,6 +425,9 @@ trait Constraint {
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d);
     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64);
     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool);
+
+    fn get_dimension(&self) -> usize;
+    fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6>;
 }
 
 pub trait EqualConsFunc {
@@ -412,14 +502,23 @@ impl <T: EqualConsFunc, const N: usize> Constraint for EqualConstraints<T, N> {
         self.body_B
     }
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
-        let dv = 
-            self.inv_m * self.constraint_1d[0].jacobian.T() * self.constraint_1d[0].accum_lambda +
-            self.inv_m * self.constraint_1d[1].jacobian.T() * self.constraint_1d[1].accum_lambda;
+        let mut dv = TVec::<f64, 6>::ZEROS;
+        for i in 0..N {
+            dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
+        }
 
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
         body_B.delta_v += dv.v_slice(3..5, 0).into();
         body_B.delta_𝜔 += Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+
+    fn get_dimension(&self) -> usize {
+        N
+    }
+
+    fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6> {
+        self.constraint_1d[i].jacobian
     }
 
     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
@@ -689,14 +788,23 @@ impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N
         self.body_B
     }
     fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
-        let dv = 
-            self.inv_m * self.constraint_1d[0].jacobian.T() * self.constraint_1d[0].accum_lambda +
-            self.inv_m * self.constraint_1d[1].jacobian.T() * self.constraint_1d[1].accum_lambda;
-
+        let mut dv = TVec::<f64, 6>::ZEROS;
+        for i in 0..N {
+            dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
+        }
+        
         body_A.delta_v += dv.v_slice(0..2, 0).into();
         body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
         body_B.delta_v += dv.v_slice(3..5, 0).into();
         body_B.delta_𝜔 += Mat11::from(dv.v_slice(5..6, 0)).as_float();
+    }
+    
+    fn get_dimension(&self) -> usize {
+        N
+    }
+
+    fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6> {
+        self.constraint_1d[i].jacobian
     }
 
     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {

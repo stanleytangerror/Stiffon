@@ -47,7 +47,7 @@ impl Rbd2dSample for PointJoint2dSample {
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
-        solver.step(dt);
+        solver.step_gs(dt);
     }
 }
 
@@ -79,7 +79,7 @@ impl Rbd2dSample for AngularJoint2dSample {
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
-        solver.step(dt);
+        solver.step_gs(dt);
     }
 }
 
@@ -112,7 +112,7 @@ impl Rbd2dSample for AngularMotor2dSample {
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
-        solver.step(dt);
+        solver.step_gs(dt);
     }
 }
 
@@ -145,7 +145,7 @@ impl Rbd2dSample for AngularLimit2dSample {
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
-        solver.step(dt);
+        solver.step_gs(dt);
     }
 }
 
@@ -176,14 +176,15 @@ impl Rbd2dSample for Prismatic2dSample {
         solver.add_prismatic_joint(
             body1, body2, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
-            mvec!(1.0, 0.4), 10.0,
+            mvec!(1.0, 0.4), 
+            true, Some(10.0),
             true, Some(100.0), Some(-3.0), 
             true, Some(-1.0), Some(1.0)
         );
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
-        solver.step(dt);
+        solver.step_gs(dt);
     }
 }
 
@@ -220,7 +221,134 @@ impl Rbd2dSample for Revolute2dSample {
     }
 
     fn step(&self, solver: &mut Solver2d, dt: f64) {
-        solver.step(dt);
+        solver.step_gs(dt);
+    }
+}
+
+
+struct Barrier2dSample {
+}
+
+impl Rbd2dSample for Barrier2dSample {
+    fn setup(&self, solver: &mut Solver2d) {
+        solver.set_iteration_count(5, 2);
+
+        let bottom = solver.add_body(Body2d::new(
+            INFINITY,
+            INFINITY,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::IDENTITY,
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+        
+        let body_right = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::IDENTITY,
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+
+        let body_left = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::IDENTITY,
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+    
+        solver.add_prismatic_joint(
+            bottom, body_right, 
+            mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
+            mvec!(1.0, 0.0), 
+            false, None,
+            false, Some(100000.0), Some(30.0), 
+            true, Some(-1.5), Some(1.5)
+        );
+
+        solver.add_prismatic_joint(
+            bottom, body_left, 
+            mvec!(-1.5, 0.0), mvec!(-1.5, 0.0), 
+            mvec!(1.0, 0.0), 
+            false, None,
+            false, Some(100000.0), Some(-30.0), 
+            true, Some(-1.5), Some(1.5)
+        );
+
+        solver.add_point_joint(body_right, body_left, mvec!(0.0, 0.0), mvec!(0.0, 0.0));
+
+        let mut last_left: usize = body_right;
+        let mut last_right: usize = body_left;
+
+        for i in 0..2 {
+            let next_left: usize = solver.add_body(Body2d::new(
+                1.0,
+                1.0,
+                Vec2::ZEROS,
+                0.0,
+                Transform2d::IDENTITY,
+                Geometry2d::rectangle(mvec!(1.5, 0.2)),
+            ));
+
+            let next_right: usize = solver.add_body(Body2d::new(
+                1.0,
+                1.0,
+                Vec2::ZEROS,
+                0.0,
+                Transform2d::IDENTITY,
+                Geometry2d::rectangle(mvec!(1.5, 0.2)),
+            ));
+
+            solver.add_point_joint(
+                last_right, next_right, 
+                mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
+            );
+
+            solver.add_point_joint(
+                last_left, next_left, 
+                mvec!(-1.5, 0.0), mvec!(-1.5, 0.0), 
+            );
+
+            solver.add_point_joint(next_left, next_right, mvec!(0.0, 0.0), mvec!(0.0, 0.0));
+
+            last_left = next_right;
+            last_right = next_left;
+        }
+
+        let top = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::IDENTITY,
+            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+        ));
+
+        solver.add_prismatic_joint(
+            top, last_right, 
+            mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
+            mvec!(1.0, 0.0), 
+            false, None,
+            false, None, None, 
+            true, Some(-1.5), Some(1.5)
+        );
+
+        solver.add_prismatic_joint(
+            top, last_left, 
+            mvec!(-1.5, 0.0), mvec!(-1.5, 0.0), 
+            mvec!(1.0, 0.0), 
+            false, None,
+            false, None, None, 
+            true, Some(-1.5), Some(1.5)
+        );
+
+    }
+
+    fn step(&self, solver: &mut Solver2d, dt: f64) {
+        solver.step_global(dt);
     }
 }
 
@@ -228,10 +356,11 @@ impl Rbd2dSample for Revolute2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Solver2d::new();
-    let sample = Prismatic2dSample {};
+    let sample = Barrier2dSample {};
     sample.setup(&mut solver);
 
-    let draw2d = Draw2d::new();
+    let mut draw2d = Draw2d::new();
+    draw2d.set_camera_width(50.0);
 
     loop {
         sample.step(&mut solver, 0.01);
