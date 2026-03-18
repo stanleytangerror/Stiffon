@@ -401,11 +401,11 @@ impl Solver2d {
             }
         }
 
-        let k = j.clone() * inv_m.clone() * j.clone().T();
-        let b = -j.clone() * v.clone();
+        let k = &j * &inv_m * &j.T();
+        let b = -(&j * &v);
 
         let lambda = solve_gauss_seidel_dyn(k, b, 100, 1e-6);
-        let dv = inv_m.clone() * (j.T() * lambda.clone());
+        let dv = &inv_m * (&j.T() * &lambda);
 
         for i in 0..n_bodies {
             *self.bodies[i].delta_v.v_mut(0, 0) = dv.v(i*3, 0);

@@ -682,9 +682,9 @@ impl<T: FloatNum> std::ops::SubAssign for TDynMat<T> {
     }
 }
 
-impl<T: FloatNum> std::ops::Mul<TDynMat<T>> for TDynMat<T> {
+impl<T: FloatNum> std::ops::Mul<&TDynMat<T>> for &TDynMat<T> {
     type Output = TDynMat<T>;
-    fn mul(self, rhs: TDynMat<T>) -> Self::Output {
+    fn mul(self, rhs: &TDynMat<T>) -> Self::Output {
         assert_eq!(self.n_cols(), rhs.n_rows(), "matrix dimensions do not match");
         
         let mut mat = TDynMat::<T>::zeros(self.n_rows(), rhs.n_cols());
@@ -698,6 +698,27 @@ impl<T: FloatNum> std::ops::Mul<TDynMat<T>> for TDynMat<T> {
             }
         }
         mat
+    }
+}
+
+impl<T: FloatNum> std::ops::Mul<TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn mul(self, rhs: TDynMat<T>) -> Self::Output {
+        (&self) * (&rhs)
+    }
+}
+
+impl<T: FloatNum> std::ops::Mul<&TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn mul(self, rhs: &TDynMat<T>) -> Self::Output {
+        (&self) * rhs
+    }
+}
+
+impl<T: FloatNum> std::ops::Mul<TDynMat<T>> for &TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn mul(self, rhs: TDynMat<T>) -> Self::Output {
+        self * (&rhs)
     }
 }
 
