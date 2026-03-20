@@ -624,9 +624,9 @@ impl<T: FloatNum> TDynMat<T> {
 }
 
 
-impl<T: FloatNum> std::ops::Add for TDynMat<T> {
+impl<T: FloatNum> std::ops::Add<&TDynMat<T>> for &TDynMat<T> {
     type Output = TDynMat<T>;
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: &TDynMat<T>) -> Self::Output {
         assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
         assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
         
@@ -637,6 +637,27 @@ impl<T: FloatNum> std::ops::Add for TDynMat<T> {
             }
         }
         mat
+    }
+}
+
+impl<T: FloatNum> std::ops::Add<TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn add(self, rhs: TDynMat<T>) -> Self::Output {
+        (&self) - (&rhs)
+    }
+}
+
+impl<T: FloatNum> std::ops::Add<&TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn add(self, rhs: &TDynMat<T>) -> Self::Output {
+        (&self) - rhs
+    }
+}
+
+impl<T: FloatNum> std::ops::Add<TDynMat<T>> for &TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn add(self, rhs: TDynMat<T>) -> Self::Output {
+        self - (&rhs)
     }
 }
 
@@ -653,9 +674,9 @@ impl<T: FloatNum> std::ops::AddAssign for TDynMat<T> {
     }
 }
 
-impl<T: FloatNum> std::ops::Sub for TDynMat<T> {
+impl<T: FloatNum> std::ops::Sub<&TDynMat<T>> for &TDynMat<T> {
     type Output = TDynMat<T>;
-    fn sub(self, rhs: Self) -> Self::Output {
+    fn sub(self, rhs: &TDynMat<T>) -> Self::Output {
         assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
         assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
         
@@ -666,6 +687,27 @@ impl<T: FloatNum> std::ops::Sub for TDynMat<T> {
             }
         }
         mat
+    }
+}
+
+impl<T: FloatNum> std::ops::Sub<TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn sub(self, rhs: TDynMat<T>) -> Self::Output {
+        (&self) - (&rhs)
+    }
+}
+
+impl<T: FloatNum> std::ops::Sub<&TDynMat<T>> for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn sub(self, rhs: &TDynMat<T>) -> Self::Output {
+        (&self) - rhs
+    }
+}
+
+impl<T: FloatNum> std::ops::Sub<TDynMat<T>> for &TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn sub(self, rhs: TDynMat<T>) -> Self::Output {
+        self - (&rhs)
     }
 }
 
@@ -745,7 +787,8 @@ impl<T: FloatNum> std::ops::MulAssign<T> for TDynMat<T> {
     }
 }
 
-impl<T: FloatNum> std::ops::Neg for TDynMat<T> {
+
+impl<T: FloatNum> std::ops::Neg for &TDynMat<T> {
     type Output = TDynMat<T>;
     fn neg(self) -> Self::Output {
         let mut mat = TDynMat::<T>::zeros(self.n_rows(), self.n_cols());
@@ -755,6 +798,14 @@ impl<T: FloatNum> std::ops::Neg for TDynMat<T> {
             }
         }
         mat
+    }
+}
+
+
+impl<T: FloatNum> std::ops::Neg for TDynMat<T> {
+    type Output = TDynMat<T>;
+    fn neg(self) -> Self::Output {
+        -(&self)
     }
 }
 
