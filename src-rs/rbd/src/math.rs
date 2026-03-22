@@ -442,103 +442,31 @@ macro_rules! d_concat {
     }};
 }
 
-pub struct TMatSlice<'a, T: FloatNum, const R: usize, const C: usize> {
-    data: &'a TMat<T, R, C>,
-    rows: Range<usize>,
-    cols: Range<usize>,
-}
-
-impl<T: FloatNum, const R: usize, const C: usize> TMatSlice<'_, T, R, C> {
-    pub fn v(&self, i: usize, j: usize) -> T {
-        self.data.v(self.rows.start + i, self.cols.start + j)
-    }
-
-    pub fn is_h_vec(&self) -> bool {
-        self.rows.len() == 1
-    }
-
-    pub fn is_v_vec(&self) -> bool {
-        self.cols.len() == 1
-    }
-
-    pub fn vec_dim(&self) -> usize {
-        if self.is_h_vec() {
-            self.cols.len()
-        } else if self.is_v_vec() {
-            self.rows.len()
-        } else {
-            assert!(false, "invalid range");
-            unreachable!()
-        }
-    }
-
-    pub fn v_vec(&self, i: usize) -> T {
-        if self.is_h_vec() {
-            self.v(i, 0)
-        } else if self.is_v_vec() {
-            self.v(0, i)
-        } else {
-            assert!(false, "invalid range");
-            unreachable!()
-        }
-    }
-}
-
-impl<'a, 'b, T: FloatNum, const R1: usize, const C1: usize, const R2: usize, const C2: usize> Dot<TMatSlice<'b, T, R2, C2>> for TMatSlice<'a, T, R1, C1> {
-    type Output = T;
-    fn dot(self, rhs: TMatSlice<'b, T, R2, C2>) -> Self::Output {
-        assert!(self.is_h_vec() || self.is_v_vec(), "self is not a vector");
-        assert!(rhs.is_h_vec() || rhs.is_v_vec(), "rhs is not a vector");
-
-        assert_eq!(self.vec_dim(), rhs.vec_dim(), "vector dimensions do not match");
-
-        let n = self.vec_dim();
-        let mut sum = T::ZERO;
-        for i in 0..n {
-            sum += self.v_vec(i) * rhs.v_vec(i);
-        }
-        sum
-    }
-}
-
 impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
-    pub fn slice(
+    pub fn slice<const R1: usize, const C1: usize>(
         &self,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    ) -> TMatSlice<'_, T, R, C> {
-        TMatSlice {
-            data: self,
-            rows,
-            cols,
-        }
-    }
-
-    pub fn h_slice(&self, rows: usize, cols: Range<usize>) -> TMatSlice<'_, T, R, C> {
-        self.slice(rows..rows+1, cols)
-    }
-
-    pub fn v_slice(&self, rows: Range<usize>, cols: usize) -> TMatSlice<'_, T, R, C> {
-        self.slice(rows, cols..cols+1)
-    }
-}
-
-impl<T: FloatNum, const R1: usize, const C1: usize, const R2: usize, const C2: usize> From<TMatSlice<'_, T, R2, C2>> 
-    for TMat<T, R1, C1> 
-{
-    fn from(slice: TMatSlice<'_, T, R2, C2>) -> Self {
-        assert!(slice.rows.len() == R1 && slice.cols.len() == C1, "slice range does not match target matrix dimension");
+        r: usize,
+        c: usize,
+    ) -> TMat<T, R1, C1> {
+        assert!(r + R1 <= R && c + C1 <= C, "slice out of bounds");
 
         let mut mat = TMat::<T, R1, C1>::ZEROS;
-        for i in 0..R1 {
-            for j in 0..C1 {
-                *mat.v_mut(i, j) = slice.v(i, j);
+        for i in r..(r+R1) {
+            for j in c..(c+C1) {
+                *mat.v_mut(i, j) = self.v(i, j);
             }
         }
         mat
     }
-}
 
+    pub fn h_slice<const C1: usize>(&self, r: usize, c: usize) -> TMat<T, 1, C1> {
+        self.slice::<1, C1>(r, c)
+    }
+
+    pub fn v_slice<const R1: usize>(&self, r: usize, c: usize) -> TMat<T, R1, 1> {
+        self.slice::<R1, 1>(r, c)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TDynMat<T: FloatNum> {
@@ -548,6 +476,13 @@ pub struct TDynMat<T: FloatNum> {
 }
 
 impl<T: FloatNum> TDynMat<T> {
+
+    pub fn from_mat<const R: usize, const C: usize>(mat: TMat<T, R, C>) -> Self {
+        TDynMat { 
+            cols: mat.cols.iter().map(|row| row.to_vec()).collect(), 
+            r: R, 
+            c: C }
+    }
     
     pub fn zeros(r: usize, c: usize) -> Self {
         TDynMat { cols: vec![vec![T::ZERO; r]; c], r, c }
@@ -916,24 +851,16 @@ pub fn solve_gauss_seidel<T: FloatNum, const R: usize, const C: usize>(
     max_iterations: usize,
     tolerance: T,
 ) -> TVec<T, C> {
-    // A = D + L + U
-    // x_next = (D + L)^{-1} @ (-U @ x_prev + b)
 
-    let mut x = TVec::<T, C>::ZEROS;
-    let mut iterations = 0;
-    while iterations < max_iterations {
-        let mut x_new = TVec::<T, C>::ZEROS;
-        for i in 0..R {
-            *x_new.v_mut(i, 0) = (b.v(i, 0) 
-                - A.h_slice(i, 0..i).dot(x_new.v_slice(0..i, 0)) 
-                - A.h_slice(i, i+1..C).dot(x.v_slice(i+1..C, 0))) / A.v(i, i);
-        }
-        x = x_new;
-        let err = (A * x - b).norm();
-        if err < tolerance {
-            break;
-        }
-        iterations += 1;
+    let A_dyn = TDynMat::from_mat(A);
+    let b_dyn = TDynMat::from_mat(b);
+
+    let x_dyn = solve_gauss_seidel_dyn(A_dyn, b_dyn, max_iterations, tolerance);
+    assert_eq!(x_dyn.n_rows(), C);
+
+    let mut x = TVec::<T, C>::zeros();
+    for i in 0..C {
+        *x.v_mut(i, 0) = x_dyn.v(i, 0);
     }
     x
 }

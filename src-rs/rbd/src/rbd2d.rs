@@ -507,10 +507,10 @@ impl <T: EqualConsFunc, const N: usize> Constraint for EqualConstraints<T, N> {
             dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
         }
 
-        body_A.delta_v += dv.v_slice(0..2, 0).into();
-        body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
-        body_B.delta_v += dv.v_slice(3..5, 0).into();
-        body_B.delta_𝜔 += Mat11::from(dv.v_slice(5..6, 0)).as_float();
+        body_A.delta_v += dv.v_slice::<2>(0, 0);
+        body_A.delta_𝜔 += dv.v(2, 0);
+        body_B.delta_v += dv.v_slice::<2>(3, 0);
+        body_B.delta_𝜔 += dv.v(5, 0);
     }
 
     fn get_dimension(&self) -> usize {
@@ -586,10 +586,10 @@ impl <T: EqualConsFunc, const N: usize> Constraint for EqualConstraints<T, N> {
             dv += self.inv_m * impulse;
         }
 
-        body_A.delta_v = dv.v_slice(0..2, 0).into();
-        body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
-        body_B.delta_v = dv.v_slice(3..5, 0).into();
-        body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
+        body_A.delta_v = dv.v_slice::<2>(0, 0);
+        body_A.delta_𝜔 = dv.v(2, 0);
+        body_B.delta_v = dv.v_slice::<2>(3, 0);
+        body_B.delta_𝜔 = dv.v(5, 0);
     }
 }
 
@@ -793,10 +793,10 @@ impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N
             dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
         }
         
-        body_A.delta_v += dv.v_slice(0..2, 0).into();
-        body_A.delta_𝜔 += Mat11::from(dv.v_slice(2..3, 0)).as_float();
-        body_B.delta_v += dv.v_slice(3..5, 0).into();
-        body_B.delta_𝜔 += Mat11::from(dv.v_slice(5..6, 0)).as_float();
+        body_A.delta_v += dv.v_slice::<2>(0, 0);
+        body_A.delta_𝜔 += dv.v(2, 0);
+        body_B.delta_v += dv.v_slice::<2>(3, 0);
+        body_B.delta_𝜔 += dv.v(5, 0);
     }
     
     fn get_dimension(&self) -> usize {
@@ -881,10 +881,10 @@ impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N
             dv += self.inv_m * impulse;
         }
 
-        body_A.delta_v = dv.v_slice(0..2, 0).into();
-        body_A.delta_𝜔 = Mat11::from(dv.v_slice(2..3, 0)).as_float();
-        body_B.delta_v = dv.v_slice(3..5, 0).into();
-        body_B.delta_𝜔 = Mat11::from(dv.v_slice(5..6, 0)).as_float();
+        body_A.delta_v = dv.v_slice::<2>(0, 0);
+        body_A.delta_𝜔 = dv.v(2, 0);
+        body_B.delta_v = dv.v_slice::<2>(3, 0);
+        body_B.delta_𝜔 = dv.v(5, 0);
     }
 }
 
