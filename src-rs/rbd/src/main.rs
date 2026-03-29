@@ -7,6 +7,7 @@
 mod math;
 mod rbd2d;
 mod draw2d;
+mod global_solver_2d;
 
 use std::f64::INFINITY;
 
@@ -16,15 +17,15 @@ use crate::draw2d::Draw2d;
 use macroquad::prelude as mq;
 
 trait Rbd2dSample {
-    fn setup(&self, solver: &mut Solver2d);
-    fn step(&self, solver: &mut Solver2d, dt: f64);
+    fn setup(&self, solver: &mut Scene2d);
+    fn step(&self, solver: &mut Scene2d, dt: f64);
 }
 
 struct PointJoint2dSample {
 }
 
 impl Rbd2dSample for PointJoint2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         let body1 = solver.add_body(Body2d::new(
             INFINITY,
             INFINITY,
@@ -46,7 +47,7 @@ impl Rbd2dSample for PointJoint2dSample {
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_gs(dt);
     }
 }
@@ -55,7 +56,7 @@ struct AngularJoint2dSample {
 }
 
 impl Rbd2dSample for AngularJoint2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         let body1 = solver.add_body(Body2d::new(
             INFINITY,
             INFINITY,
@@ -78,7 +79,7 @@ impl Rbd2dSample for AngularJoint2dSample {
         let cons2 = solver.add_angular_joint(body1, body2, 90.0);
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_gs(dt);
     }
 }
@@ -88,7 +89,7 @@ struct AngularMotor2dSample {
 }
 
 impl Rbd2dSample for AngularMotor2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         let body1 = solver.add_body(Body2d::new(
             INFINITY,
             INFINITY,
@@ -111,7 +112,7 @@ impl Rbd2dSample for AngularMotor2dSample {
         let cons2 = solver.add_angular_motor(body1, body2, 500.0,  -100.0);
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_gs(dt);
     }
 }
@@ -120,7 +121,7 @@ struct AngularLimit2dSample {
 }
 
 impl Rbd2dSample for AngularLimit2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         let body1 = solver.add_body(Body2d::new(
             INFINITY,
             INFINITY,
@@ -144,7 +145,7 @@ impl Rbd2dSample for AngularLimit2dSample {
         let cons2 = solver.add_angular_limit(body1, body2, -60.0, 30.0);
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_gs(dt);
     }
 }
@@ -154,7 +155,7 @@ struct Prismatic2dSample {
 }
 
 impl Rbd2dSample for Prismatic2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         let body1 = solver.add_body(Body2d::new(
             INFINITY,
             INFINITY,
@@ -183,7 +184,7 @@ impl Rbd2dSample for Prismatic2dSample {
         );
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_gs(dt);
     }
 }
@@ -193,7 +194,7 @@ struct Revolute2dSample {
 }
 
 impl Rbd2dSample for Revolute2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         let body1 = solver.add_body(Body2d::new(
             INFINITY,
             INFINITY,
@@ -220,7 +221,7 @@ impl Rbd2dSample for Revolute2dSample {
         );
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_gs(dt);
     }
 }
@@ -230,7 +231,7 @@ struct Barrier2dSample {
 }
 
 impl Rbd2dSample for Barrier2dSample {
-    fn setup(&self, solver: &mut Solver2d) {
+    fn setup(&self, solver: &mut Scene2d) {
         solver.set_iteration_count(5, 2);
 
         let bottom = solver.add_body(Body2d::new(
@@ -347,7 +348,7 @@ impl Rbd2dSample for Barrier2dSample {
 
     }
 
-    fn step(&self, solver: &mut Solver2d, dt: f64) {
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
         solver.step_global(dt);
     }
 }
@@ -355,7 +356,7 @@ impl Rbd2dSample for Barrier2dSample {
 
 #[macroquad::main("rbd2d")]
 async fn main() {
-    let mut solver = Solver2d::new();
+    let mut solver = Scene2d::new();
     let sample = Barrier2dSample {};
     sample.setup(&mut solver);
 

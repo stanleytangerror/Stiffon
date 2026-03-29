@@ -120,6 +120,8 @@ class PinConstraint2d:
         lamdba_ = solve_gauss_seidel(effective_mass, rhs)
         impulse = self.jacobian.transpose() @ lamdba_
 
+        print('is_positional_iteration', is_positional_iteration, 'lambda: ', lamdba_, 'impulse: ', impulse, 'effective_mass: ', effective_mass, 'rhs: ', rhs)
+
         if not is_positional_iteration:
             self.applied_impulse_magnitude += lamdba_
 
@@ -370,7 +372,7 @@ class Scene2d:
         self.bodies = []
         self.last_delta_time = None
         self.persistent_constraints = []
-        self.position_iterations = 3
+        self.position_iterations = 1
         self.velocity_iterations = 1
 
     def set_gravity(self, f: Vec2):
@@ -380,6 +382,8 @@ class Scene2d:
         self.bodies.append(body)
 
     def step_simulation(self, dt: float):
+        print("======================")
+
         if self.last_delta_time is None:
             self.last_delta_time = dt
 
@@ -393,8 +397,8 @@ class Scene2d:
                 constraint.iteration(is_positional_iteration=True)
         self.post_position_iteration(dt)
 
-        for constraint in self.persistent_constraints:
-            constraint.warm_up()
+        # for constraint in self.persistent_constraints:
+        #     constraint.warm_up()
         for _ in range(self.position_iterations):
             for constraint in self.persistent_constraints:
                 constraint.iteration(is_positional_iteration=False)
@@ -435,6 +439,9 @@ class Scene2d:
             body.delta_linear_velocity = Vec2(0, 0)
             body.delta_angular_velocity = 0.0
 
+            print("-----------------")
+            print('post_position_iteration', body.pose.origin, body.pose.angle, body.linear_velocity, body.angular_velocity)
+
     def post_velocity_iteration(self, dt: float):
         for body in self.bodies:
             body.linear_velocity = body.linear_velocity + body.delta_linear_velocity + body.inv_mass * body.total_force * dt
@@ -444,6 +451,9 @@ class Scene2d:
             body.total_torque = 0.0
             body.delta_linear_velocity = Vec2(0, 0)
             body.delta_angular_velocity = 0.0
+
+            print("-----------------")
+            print('post_velocity_iteration', body.pose.origin, body.pose.angle, body.linear_velocity, body.angular_velocity)
 
 class Scene2dDebugRenderer:
     def __init__(self, scene: Scene2d, width: int, height: int):
@@ -503,14 +513,15 @@ class Scene2dDebugRenderer:
 
 if __name__ == "__main__":
     scene = Scene2d()
+    scene.set_gravity(Vec2(0.0, -9.8))
     
     pivot = Body2d(mass=float('inf'), inertia=float('inf'), pose=Transform2d(Vec2(0.0, 0.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
     scene.add_body(pivot)
 
-    body = Body2d(mass=1.0, linear_velocity=Vec2(1.0, 10.0), pose=Transform2d(Vec2(-1.0, 3.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
+    body = Body2d(mass=1.0, pose=Transform2d(Vec2(3.0, 0.0), 0.0), geometry=Rectangle(Vec2(1.0, 1.0)))
     scene.add_body(body)
 
-    scene.add_spring_constraint(pivot, body, Vec2(0.0, 0.0), Vec2(0.0, 0.0), stiffness=10.0, damping=1.0)
+    scene.add_pin_constraint(pivot, body, Vec2(1.5, 0.0), Vec2(1.5, 0.0))
 
     renderer = Scene2dDebugRenderer(scene, width=800, height=600)
     renderer.renderer.set_camera(eye=np.array([0.0, 0.0, -10.0]), target=np.array([0.0, 0.0, 0.0]), up=np.array([0.0, 1.0, 0.0]))

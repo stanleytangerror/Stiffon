@@ -12,6 +12,7 @@ use crate::h_concat;
 use crate::v_concat;
 #[macro_use]
 use crate::d_concat;
+use crate::global_solver_2d::*;
 
 // --- Geometry ---
 #[derive(Clone, Debug)]
@@ -31,22 +32,16 @@ impl Geometry2d {
 
 // --- Body2d ---
 pub struct Body2d {
-    mass: f64,
-    inv_mass: f64,
-    inertia: f64,
-    inv_inertia: f64,
-    v: Vec2,
-    𝜔: f64,
-    delta_v: Vec2,
-    delta_𝜔: f64,
-    ext_force_dv: Vec2,
-    ext_torque_d𝜔: f64,
-    pose: Transform2d,
-    geometry: Geometry2d,
-    f_ext: Vec2,
-    τ_ext: f64,
-    delta_linear_velocity: Vec2,
-    delta_angular_velocity: f64,
+    pub mass: f64,
+    pub inv_mass: f64,
+    pub inertia: f64,
+    pub inv_inertia: f64,
+    pub v: Vec2,
+    pub 𝜔: f64,
+    pub pose: Transform2d,
+    pub geometry: Geometry2d,
+    pub f_ext: Vec2,
+    pub τ_ext: f64,
 }
 
 /// Like Python: 1/m if m != inf else 0
@@ -85,16 +80,10 @@ impl Body2d {
             inv_inertia,
             v,
             𝜔,
-            delta_v: Vec2::ZEROS,
-            delta_𝜔: 0.0,
-            ext_force_dv: Vec2::ZEROS,
-            ext_torque_d𝜔: 0.0,
             pose,
             geometry,
             f_ext: Vec2::ZEROS,
             τ_ext: 0.0,
-            delta_linear_velocity: Vec2::ZEROS,
-            delta_angular_velocity: 0.0,
         }
     }
 
@@ -110,47 +99,47 @@ impl Body2d {
         self.f_ext += gravity;
     }
 
-    pub fn pre_solve(&mut self, dt: f64) {
-        self.ext_force_dv = self.f_ext * self.inv_mass * dt;
-        self.ext_torque_d𝜔 = self.inv_inertia * self.τ_ext * dt;
+    // pub fn pre_solve(&mut self, dt: f64) {
+    //     self.ext_force_dv = self.f_ext * self.inv_mass * dt;
+    //     self.ext_torque_d𝜔 = self.inv_inertia * self.τ_ext * dt;
 
-        self.f_ext = Vec2::ZEROS;
-        self.τ_ext = 0.0;
-    }
+    //     self.f_ext = Vec2::ZEROS;
+    //     self.τ_ext = 0.0;
+    // }
 
-    pub fn post_pos_solve(&mut self, dt: f64) {
-        let v_new = self.v + self.delta_v + self.ext_force_dv;
-        let 𝜔_new = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
+    // pub fn post_pos_solve(&mut self, dt: f64) {
+    //     let v_new = self.v + self.delta_v + self.ext_force_dv;
+    //     let 𝜔_new = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
 
-        self.pose.origin += v_new * dt;
-        self.pose.angle += 𝜔_new * dt;
+    //     self.pose.origin += v_new * dt;
+    //     self.pose.angle += 𝜔_new * dt;
 
-        self.delta_v = Vec2::ZEROS;
-        self.delta_𝜔 = 0.0;
-    }
+    //     self.delta_v = Vec2::ZEROS;
+    //     self.delta_𝜔 = 0.0;
+    // }
 
-    pub fn post_vel_solve(&mut self, dt: f64) {
-        self.v = self.v + self.delta_v + self.ext_force_dv;
-        self.𝜔 = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
+    // pub fn post_vel_solve(&mut self, dt: f64) {
+    //     self.v = self.v + self.delta_v + self.ext_force_dv;
+    //     self.𝜔 = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
         
-        self.delta_v = Vec2::ZEROS;
-        self.delta_𝜔 = 0.0;
-        self.ext_force_dv = Vec2::ZEROS;
-        self.ext_torque_d𝜔 = 0.0;
-    }
+    //     self.delta_v = Vec2::ZEROS;
+    //     self.delta_𝜔 = 0.0;
+    //     self.ext_force_dv = Vec2::ZEROS;
+    //     self.ext_torque_d𝜔 = 0.0;
+    // }
 
-    pub fn post_global_solve(&mut self, dt: f64) {
-        self.v = self.v + self.delta_v + self.ext_force_dv;
-        self.𝜔 = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
+    // pub fn post_global_solve(&mut self, dt: f64) {
+    //     self.v = self.v + self.delta_v + self.ext_force_dv;
+    //     self.𝜔 = self.𝜔 + self.delta_𝜔 + self.ext_torque_d𝜔;
 
-        self.pose.origin += self.v * dt;
-        self.pose.angle += self.𝜔 * dt;
+    //     self.pose.origin += self.v * dt;
+    //     self.pose.angle += self.𝜔 * dt;
 
-        self.delta_v = Vec2::ZEROS;
-        self.delta_𝜔 = 0.0;
-        self.ext_force_dv = Vec2::ZEROS;
-        self.ext_torque_d𝜔 = 0.0;
-    }
+    //     self.delta_v = Vec2::ZEROS;
+    //     self.delta_𝜔 = 0.0;
+    //     self.ext_force_dv = Vec2::ZEROS;
+    //     self.ext_torque_d𝜔 = 0.0;
+    // }
 
     pub fn pose(&self) -> Transform2d {
         self.pose
@@ -161,28 +150,193 @@ impl Body2d {
     }
 }
 
-pub struct Solver2d {
+pub struct PointJoint2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub local_pos_A: Vec2,
+    pub local_pos_B: Vec2,
+}
+
+impl Constraint for PointJoint2d {}
+
+impl PointJoint2d {
+    pub fn new(bodies: &Vec<Body2d>, body_A_id: usize, body_B_id: usize, pos_world_A: Vec2, pos_world_B: Vec2) -> Self {
+        let body_A = &bodies[body_A_id];
+        let body_B = &bodies[body_B_id];
+        let local_pos_A = body_A.pose.inv().transform_position(pos_world_A);
+        let local_pos_B = body_B.pose.inv().transform_position(pos_world_B);
+
+        PointJoint2d {
+            body_A_id,
+            body_B_id,
+            local_pos_A,
+            local_pos_B,
+        }
+    }
+}
+
+pub struct AngularJoint2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub angle_A_minus_B: f64,
+}
+
+impl Constraint for AngularJoint2d {}
+
+impl AngularJoint2d {
+    pub fn new(bodies: &Vec<Body2d>, body_A_id: usize, body_B_id: usize, angle_A_minus_B_degrees: f64) -> Self {
+        AngularJoint2d {
+            body_A_id,
+            body_B_id,
+            angle_A_minus_B: angle_A_minus_B_degrees.to_radians(),
+        }
+    }
+}
+
+pub struct AngularMotor2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub torque_max: f64,
+    pub 𝜔: f64,
+}
+
+impl Constraint for AngularMotor2d {}
+
+impl AngularMotor2d {
+
+    pub fn new(bodies: &Vec<Body2d>, body_A_id: usize, body_B_id: usize, torque_max: f64, 𝜔_degrees: f64) -> Self {
+        AngularMotor2d {
+            body_A_id,
+            body_B_id,
+            torque_max,
+            𝜔: 𝜔_degrees.to_radians(),
+        }
+    }
+}
+
+pub struct PrismaticJoint2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub local_pos_A: Vec2,
+    pub local_pos_B: Vec2,
+    pub local_angle_A: f64,
+    pub local_angle_B: f64,
+
+    pub has_motor: bool,
+    pub disp_A_minus_B: f64,
+    pub force_max: Option<f64>,
+    pub v: Option<f64>,
+
+    pub has_limit: bool,
+    pub dist_min: Option<f64>,
+    pub dist_max: Option<f64>,
+}
+
+impl Constraint for PrismaticJoint2d {}
+
+impl PrismaticJoint2d {
+    pub fn new(bodies: &Vec<Body2d>, 
+        body_A_id: usize, body_B_id: usize, 
+        pos_world_A: Vec2, pos_world_B: Vec2, 
+        dir_world_A: Vec2, angle_A_minus_B_degrees: Option<f64>,
+        has_motor: bool, force_max: Option<f64>, v: Option<f64>,
+        has_limit: bool, dist_min: Option<f64>, dist_max: Option<f64>,
+    ) -> Self {
+        let body_A = &bodies[body_A_id];
+        let body_B = &bodies[body_B_id];
+
+        let local_angle_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
+        let local_angle_B = local_angle_A - angle_A_minus_B_degrees.unwrap_or(0.0).to_radians();
+        let local_pos_A = body_A.pose.inv().transform_position(pos_world_A);
+        let local_pos_B = body_B.pose.inv().transform_position(pos_world_B);
+
+        PrismaticJoint2d {
+            body_A_id,
+            body_B_id,
+            local_pos_A,
+            local_pos_B,
+            local_angle_A,
+            local_angle_B,
+            has_motor,
+            disp_A_minus_B: 0.0,
+            force_max,
+            v,
+            has_limit,
+            dist_min,
+            dist_max,
+        }
+    }
+}
+
+pub struct RevoluteJoint2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub local_pos_A: Vec2,
+    pub local_pos_B: Vec2,
+
+    pub has_motor: bool,
+    pub torque_max: Option<f64>,
+    pub 𝜔: Option<f64>,
+    pub angle_A_minus_B: f64,
+
+    pub has_limit: bool,
+    pub angle_min: Option<f64>,
+    pub angle_max: Option<f64>,
+}
+
+impl Constraint for RevoluteJoint2d {}
+
+impl RevoluteJoint2d {
+    pub fn new(bodies: &Vec<Body2d>, 
+        body_A_id: usize, body_B_id: usize, 
+        pos_world_A: Vec2, pos_world_B: Vec2, 
+        has_motor: bool, torque_max: Option<f64>, 𝜔_degrees: Option<f64>,
+        has_limit: bool, angle_min_degrees: Option<f64>, angle_max_degrees: Option<f64>
+    ) -> Self {
+        let body_A = &bodies[body_A_id];
+        let body_B = &bodies[body_B_id];
+
+        let local_pos_A = body_A.pose.inv().transform_position(pos_world_A);
+        let local_pos_B = body_B.pose.inv().transform_position(pos_world_B);
+
+        RevoluteJoint2d {
+            body_A_id,
+            body_B_id,
+            local_pos_A,
+            local_pos_B,
+
+            has_motor,
+            torque_max,
+            𝜔: 𝜔_degrees.to_radians(),
+            angle_A_minus_B: 0.0,
+
+            has_limit,
+            angle_min: angle_min_degrees.to_radians(),
+            angle_max: angle_max_degrees.to_radians(),
+        }
+    }
+}
+
+pub struct Scene2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
     constraints: Vec<Box<dyn Constraint>>,
-    pos_iter_count: usize,
-    vel_iter_count: usize,
+    global_impulse_solver: GlobalImpulseSolver2d,
 }
 
-impl Solver2d {
+impl Scene2d {
     pub fn new() -> Self {
-        Solver2d {
+        Scene2d {
             bodies: Vec::new(),
             gravity: mvec!(0.0, -9.8),
             constraints: Vec::new(),
-            pos_iter_count: 1,
-            vel_iter_count: 1,
+            global_impulse_solver: GlobalImpulseSolver2d{},
         }
     }
 
     pub fn set_iteration_count(&mut self, pos_iter_count: usize, vel_iter_count: usize) {
-        self.pos_iter_count = pos_iter_count;
-        self.vel_iter_count = vel_iter_count;
+    //     self.pos_iter_count = pos_iter_count;
+    //     self.vel_iter_count = vel_iter_count;
     }
 
     pub fn add_body(&mut self, body: Body2d) -> usize {
@@ -194,35 +348,39 @@ impl Solver2d {
     pub fn add_point_joint(&mut self, body_A_id: usize, body_B_id: usize, pos_world_A: Vec2, pos_world_B: Vec2) -> usize {
         let index = self.constraints.len();
 
-        let body_A = &self.bodies[body_A_id];
-        let body_B = &self.bodies[body_B_id];
-        let local_frame_body_A = body_A.pose.inv() * Transform2d::new(pos_world_A, 0.0);
-        let local_frame_body_B = body_B.pose.inv() * Transform2d::new(pos_world_B, 0.0);
+        // let body_A = &self.bodies[body_A_id];
+        // let body_B = &self.bodies[body_B_id];
+        // let local_frame_body_A = body_A.pose.inv() * Transform2d::new(pos_world_A, 0.0);
+        // let local_frame_body_B = body_B.pose.inv() * Transform2d::new(pos_world_B, 0.0);
 
-        let mut constraint = EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_x() }, Pos1dEqConsFunc{ n_local: Vec2::unit_y() }]);
-        self.constraints.push(Box::new(constraint));
+        // let mut constraint = EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_x() }, Pos1dEqConsFunc{ n_local: Vec2::unit_y() }]);
+        // self.constraints.push(Box::new(constraint));
+
+        self.constraints.push(Box::new(PointJoint2d::new(&self.bodies, body_A_id, body_B_id, pos_world_A, pos_world_B)));
 
         index
     }
 
     pub fn add_angular_joint(&mut self, body_A_id: usize, body_B_id: usize, angle: f64) -> usize {
         let index = self.constraints.len();
-        let body_A = &self.bodies[body_A_id];
-        let body_B = &self.bodies[body_B_id];
-        let local_frame_body_A = body_A.pose.inv() * Transform2d::new(Vec2::ZEROS, angle.to_radians());
-        let local_frame_body_B = body_B.pose.inv() * Transform2d::new(Vec2::ZEROS, 0.0);
-        let mut constraint = EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotEqConsFunc{}]);
+        // let body_A = &self.bodies[body_A_id];
+        // let body_B = &self.bodies[body_B_id];
+        // let local_frame_body_A = body_A.pose.inv() * Transform2d::new(Vec2::ZEROS, angle.to_radians());
+        // let local_frame_body_B = body_B.pose.inv() * Transform2d::new(Vec2::ZEROS, 0.0);
+        let mut constraint = AngularJoint2d::new(&self.bodies, body_A_id, body_B_id, angle);
         self.constraints.push(Box::new(constraint));
         index
     }
 
     pub fn add_angular_motor(&mut self, body_A_id: usize, body_B_id: usize, torque_max: f64, 𝜔: f64) -> usize {
         let index = self.constraints.len();
-        let body_A = &self.bodies[body_A_id];
-        let body_B = &self.bodies[body_B_id];
-        let local_frame_body_A = body_A.pose.inv();
-        let local_frame_body_B = body_B.pose.inv();
-        let mut constraint = EqualConstraints::<RotMotorConsFunc, 1>::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotMotorConsFunc{ torque_max, 𝜔: 𝜔.to_radians() }]);
+        // let body_A = &self.bodies[body_A_id];
+        // let body_B = &self.bodies[body_B_id];
+        // let local_frame_body_A = body_A.pose.inv();
+        // let local_frame_body_B = body_B.pose.inv();
+        // let mut constraint = EqualConstraints::<RotMotorConsFunc, 1>::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotMotorConsFunc{ torque_max, 𝜔: 𝜔.to_radians() }]);
+
+        let mut constraint = AngularMotor2d::new(&self.bodies, body_A_id, body_B_id, torque_max, 𝜔);
         self.constraints.push(Box::new(constraint));
         index
     }
@@ -236,31 +394,35 @@ impl Solver2d {
         has_limit: bool, dist_min: Option<f64>, dist_max: Option<f64>,
     ) -> usize {
         let index = self.constraints.len();
-        let body_A = &self.bodies[body_A_id];
-        let body_B = &self.bodies[body_B_id];
 
-        let angle_local_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
-        let angle_local_B = angle_local_A + angle_A_minus_B.unwrap_or(0.0).to_radians();
-        let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
-        let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
+        // let body_A = &self.bodies[body_A_id];
+        // let body_B = &self.bodies[body_B_id];
 
-        let local_frame_body_A = Transform2d::new(pos_local_A, angle_local_A);
-        let local_frame_body_B = Transform2d::new(pos_local_B, angle_local_B);
+        // let angle_local_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
+        // let angle_local_B = angle_local_A + angle_A_minus_B.unwrap_or(0.0).to_radians();
+        // let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
+        // let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
 
-        self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
+        // let local_frame_body_A = Transform2d::new(pos_local_A, angle_local_A);
+        // let local_frame_body_B = Transform2d::new(pos_local_B, angle_local_B);
 
-        if has_angle_lock {
-            self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotEqConsFunc{}])));
-        }
+        // self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
 
-        if has_motor {
-            self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMotorFunc{ n_local: Vec2::unit_x(), force_max: force_max.unwrap(), v: v.unwrap() }])));
-        }
+        // if has_angle_lock {
+        //     self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotEqConsFunc{}])));
+        // }
 
-        if has_limit {
-            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMinConsFunc{ n_local: Vec2::unit_x(), dist_min: dist_min.unwrap() }])));
-            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMaxConsFunc{ n_local: Vec2::unit_x(), dist_max: dist_max.unwrap() }])));
-        }
+        // if has_motor {
+        //     self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMotorFunc{ n_local: Vec2::unit_x(), force_max: force_max.unwrap(), v: v.unwrap() }])));
+        // }
+
+        // if has_limit {
+        //     self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMinConsFunc{ n_local: Vec2::unit_x(), dist_min: dist_min.unwrap() }])));
+        //     self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dMaxConsFunc{ n_local: Vec2::unit_x(), dist_max: dist_max.unwrap() }])));
+        // }
+
+        let mut constraint = PrismaticJoint2d::new(&self.bodies, body_A_id, body_B_id, pos_world_A, pos_world_B, dir_world_A, angle_A_minus_B, has_motor, force_max, v, has_limit, dist_min, dist_max);
+        self.constraints.push(Box::new(constraint));
 
         index
     }
@@ -272,39 +434,44 @@ impl Solver2d {
         has_limit: bool, limit_min: Option<f64>, limit_max: Option<f64>,
     ) -> usize {
         let index = self.constraints.len();
-        let body_A = &self.bodies[body_A_id];
-        let body_B = &self.bodies[body_B_id];
+        // let body_A = &self.bodies[body_A_id];
+        // let body_B = &self.bodies[body_B_id];
 
-        let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
-        let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
+        // let pos_local_A = body_A.pose.inv().transform_position(pos_world_A);
+        // let pos_local_B = body_B.pose.inv().transform_position(pos_world_B);
         
 
-        let local_frame_body_A = Transform2d::new(pos_local_A, 0.0);
-        let local_frame_body_B = Transform2d::new(pos_local_B, 0.0);
+        // let local_frame_body_A = Transform2d::new(pos_local_A, 0.0);
+        // let local_frame_body_B = Transform2d::new(pos_local_B, 0.0);
 
-        self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_x() }, Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
+        // self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [Pos1dEqConsFunc{ n_local: Vec2::unit_x() }, Pos1dEqConsFunc{ n_local: Vec2::unit_y() }])));
         
-        if has_motor {
-            self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotMotorConsFunc{ torque_max: torque_max.unwrap(), 𝜔: 𝜔.unwrap().to_radians() }])));
-        }
-        if has_limit {
-            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMinConsFunc{ angle_min: limit_min.unwrap().to_radians() }])));
-            self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: limit_max.unwrap().to_radians() }])));
-        }
+        // if has_motor {
+        //     self.constraints.push(Box::new(EqualConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [RotMotorConsFunc{ torque_max: torque_max.unwrap(), 𝜔: 𝜔.unwrap().to_radians() }])));
+        // }
+        // if has_limit {
+        //     self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMinConsFunc{ angle_min: limit_min.unwrap().to_radians() }])));
+        //     self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: limit_max.unwrap().to_radians() }])));
+        // }
+
+        let mut constraint = RevoluteJoint2d::new(&self.bodies, body_A_id, body_B_id, pos_world_A, pos_world_B, has_motor, torque_max, 𝜔, has_limit, limit_min, limit_max);
+        self.constraints.push(Box::new(constraint));
+
         index
     }
 
 
     pub fn add_angular_limit(&mut self, body_A_id: usize, body_B_id: usize, angle_min: f64, angle_max: f64) -> usize {
         let index = self.constraints.len();
-        let body_A = &self.bodies[body_A_id];
-        let body_B = &self.bodies[body_B_id];
-        let local_frame_body_A = body_A.pose.inv();
-        let local_frame_body_B = body_B.pose.inv();
-        let mut constraint1 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMinConsFunc{ angle_min: angle_min.to_radians() }]);
-        let mut constraint2 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: angle_max.to_radians() }]);
-        self.constraints.push(Box::new(constraint1));
-        self.constraints.push(Box::new(constraint2));
+        // let body_A = &self.bodies[body_A_id];
+        // let body_B = &self.bodies[body_B_id];
+        // let local_frame_body_A = body_A.pose.inv();
+        // let local_frame_body_B = body_B.pose.inv();
+        // let mut constraint1 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMinConsFunc{ angle_min: angle_min.to_radians() }]);
+        // let mut constraint2 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: angle_max.to_radians() }]);
+        // self.constraints.push(Box::new(constraint1));
+        // self.constraints.push(Box::new(constraint2));
+                
         index
     }
 
@@ -313,43 +480,43 @@ impl Solver2d {
     }
 
     pub fn step_gs(&mut self, dt: f64) {
-        for body in &mut self.bodies {
-            body.apply_gravity(self.gravity);
-        }
+    //     for body in &mut self.bodies {
+    //         body.apply_gravity(self.gravity);
+    //     }
 
-        for body in &mut self.bodies {
-            body.pre_solve(dt);
-        }
+    //     for body in &mut self.bodies {
+    //         body.pre_solve(dt);
+    //     }
 
-        for constraint in &mut self.constraints {
-            constraint.setup(&self.bodies[constraint.body_A_id()], &self.bodies[constraint.body_B_id()], dt);
-        }
+    //     for constraint in &mut self.constraints {
+    //         constraint.setup(&self.bodies[constraint.body_A_id()], &self.bodies[constraint.body_B_id()], dt);
+    //     }
 
-        for i in 0..self.pos_iter_count {
-            for constraint in &mut self.constraints {
-                let [mut body_A, mut body_B] = self.bodies
-                    .get_disjoint_mut([constraint.body_A_id(), constraint.body_B_id()])
-                    .expect("constraint body indices out of bounds or equal");
-                constraint.iteration(body_A, body_B, true);
-            }
-        }
+    //     for i in 0..self.pos_iter_count {
+    //         for constraint in &mut self.constraints {
+    //             let [mut body_A, mut body_B] = self.bodies
+    //                 .get_disjoint_mut([constraint.body_A_id(), constraint.body_B_id()])
+    //                 .expect("constraint body indices out of bounds or equal");
+    //             constraint.iteration(body_A, body_B, true);
+    //         }
+    //     }
 
-        for body in &mut self.bodies {
-            body.post_pos_solve(dt);
-        }
+    //     for body in &mut self.bodies {
+    //         body.post_pos_solve(dt);
+    //     }
 
-        for i in 0..self.vel_iter_count {
-            for constraint in &mut self.constraints {
-                let [mut body_A, mut body_B] = self.bodies
-                    .get_disjoint_mut([constraint.body_A_id(), constraint.body_B_id()])
-                    .expect("constraint body indices out of bounds or equal");
-                constraint.iteration(body_A, body_B, false);
-            }
-        }
+    //     for i in 0..self.vel_iter_count {
+    //         for constraint in &mut self.constraints {
+    //             let [mut body_A, mut body_B] = self.bodies
+    //                 .get_disjoint_mut([constraint.body_A_id(), constraint.body_B_id()])
+    //                 .expect("constraint body indices out of bounds or equal");
+    //             constraint.iteration(body_A, body_B, false);
+    //         }
+    //     }
 
-        for body in &mut self.bodies {
-            body.post_vel_solve(dt);
-        }
+    //     for body in &mut self.bodies {
+    //         body.post_vel_solve(dt);
+    //     }
     }
 
     pub fn step_global(&mut self, dt: f64) {
@@ -357,653 +524,672 @@ impl Solver2d {
             body.apply_gravity(self.gravity);
         }
 
-        for body in &mut self.bodies {
-            body.pre_solve(dt);
-        }
-
-        for constraint in &mut self.constraints {
-            constraint.setup(&self.bodies[constraint.body_A_id()], &self.bodies[constraint.body_B_id()], dt);
-        }
-
-        let mut n_constraints = 0;
-        for constraint in &mut self.constraints {
-            n_constraints += constraint.get_dimension();
-        }
-        let n_bodies = self.bodies.len();
+        let (delta_v, delta_𝜔) = self.global_impulse_solver.solve(&self.bodies, &self.constraints, dt);
         
-        let mut j = TDynMat::<f64>::zeros(n_constraints, 3 * n_bodies);
-        let mut inv_m = TDynMat::<f64>::zeros(3 * n_bodies, 3 * n_bodies);
-        let mut v = TDynMat::<f64>::zeros(3 * n_bodies, 1);
-
-        for i in 0..n_bodies {
-            *inv_m.v_mut(i * 3, i * 3) = self.bodies[i].inv_mass;
-            *inv_m.v_mut(i * 3 + 1, i * 3 + 1) = self.bodies[i].inv_mass;
-            *inv_m.v_mut(i * 3 + 2, i * 3 + 2) = self.bodies[i].inv_inertia;
-
-            *v.v_mut(i * 3 + 0, 0) = self.bodies[i].v.x();
-            *v.v_mut(i * 3 + 1, 0) = self.bodies[i].v.y();
-            *v.v_mut(i * 3 + 2, 0) = self.bodies[i].𝜔;
-        }
-
-        let mut i_cons = 0;
-        for constraint in &mut self.constraints {
-            for i in 0..constraint.get_dimension() {
-                let local_j = constraint.get_jacobian(i);
-                let body_A_id = constraint.body_A_id();
-                let body_B_id = constraint.body_B_id();
-                *j.v_mut(i_cons, body_A_id * 3 + 0) = local_j.v(0, 0);
-                *j.v_mut(i_cons, body_A_id * 3 + 1) = local_j.v(0, 1);
-                *j.v_mut(i_cons, body_A_id * 3 + 2) = local_j.v(0, 2);
-                *j.v_mut(i_cons, body_B_id * 3 + 0) = local_j.v(0, 3);
-                *j.v_mut(i_cons, body_B_id * 3 + 1) = local_j.v(0, 4);
-                *j.v_mut(i_cons, body_B_id * 3 + 2) = local_j.v(0, 5);
-                i_cons += 1;
-            }
-        }
-
-        let k = &j * &inv_m * &j.T();
-        let b = -(&j * &v);
-
-        let lambda = solve_gauss_seidel_dyn(k, b, 100, 1e-6);
-        let dv = &inv_m * (&j.T() * &lambda);
-
-        for i in 0..n_bodies {
-            *self.bodies[i].delta_v.v_mut(0, 0) = dv.v(i*3, 0);
-            *self.bodies[i].delta_v.v_mut(1, 0) = dv.v(i*3+1, 0);
-            self.bodies[i].delta_𝜔 = dv.v(i*3+2, 0);
-        }
-
-        for body in &mut self.bodies {
-            body.post_global_solve(dt);
-        }
-    }
-}
-
-trait Constraint {
-    fn body_A_id(&self) -> usize;
-    fn body_B_id(&self) -> usize;
-    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d);
-    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64);
-    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool);
-
-    fn get_dimension(&self) -> usize;
-    fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6>;
-}
-
-pub trait EqualConsFunc {
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6>;
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64;
-    fn max_accum_lambda(&self, dt: f64) -> f64;
-}
-
-#[derive(Copy, Clone)]
-struct EqualConsData {
-    inv_eff_mass: f64,
-    jacobian: TMat<f64, 1, 6>,
-    bias: f64,
-    accum_lambda: f64,
-    max_accum_lambda: f64,
-    need_resolve: bool,
-}
-
-impl EqualConsData {
-    pub fn new() -> Self {
-        EqualConsData {
-            inv_eff_mass: 1.0,
-            jacobian: TMat::ZEROS,
-            bias: 0.0,
-            accum_lambda: 0.0,
-            max_accum_lambda: f64::INFINITY,
-            need_resolve: true,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.inv_eff_mass = 1.0;
-        self.jacobian = TMat::ZEROS;
-        self.bias = 0.0;
-        self.accum_lambda = 0.0;
-        self.max_accum_lambda = f64::INFINITY;
-        self.need_resolve = true;
-    }
-}
-
-pub struct EqualConstraints<T: EqualConsFunc, const N: usize> {
-    body_A: usize,
-    body_B: usize,
-    local_frame_body_A: Transform2d,
-    local_frame_body_B: Transform2d,
-    
-    inv_m: TMat<f64, 6, 6>,
-    constraint_1d: [EqualConsData; N],
-    pub cons_funcs: [T; N],
-}
-
-impl <T: EqualConsFunc, const N: usize> EqualConstraints<T, N> {
-    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, cons_funcs: [T; N]) -> Self {
-        EqualConstraints {
-            body_A,
-            body_B,
-            local_frame_body_A,
-            local_frame_body_B,
-
-            inv_m: TMat::ZEROS,
-            constraint_1d: [EqualConsData::new(); N],
-            cons_funcs,
-        }
-    }
-}
-
-impl <T: EqualConsFunc, const N: usize> Constraint for EqualConstraints<T, N> {
-    fn body_A_id(&self) -> usize {
-        self.body_A
-    }
-    fn body_B_id(&self) -> usize {
-        self.body_B
-    }
-    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
-        let mut dv = TVec::<f64, 6>::ZEROS;
-        for i in 0..N {
-            dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
-        }
-
-        body_A.delta_v += dv.v_slice::<2>(0, 0);
-        body_A.delta_𝜔 += dv.v(2, 0);
-        body_B.delta_v += dv.v_slice::<2>(3, 0);
-        body_B.delta_𝜔 += dv.v(5, 0);
-    }
-
-    fn get_dimension(&self) -> usize {
-        N
-    }
-
-    fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6> {
-        self.constraint_1d[i].jacobian
-    }
-
-    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
-        
-        let p_A = body_A.pose * self.local_frame_body_A;
-        let p_B = body_B.pose * self.local_frame_body_B;
-
-        let r_A = p_A.origin - body_A.pose.origin;
-        let r_B = p_B.origin - body_B.pose.origin;
-
-        self.inv_m = d_concat!(
-            Mat22::diag([body_A.inv_mass; 2]),
-            body_A.inv_inertia,
-            Mat22::diag([body_B.inv_mass; 2]),
-            body_B.inv_inertia
-        );
-
-        for i in 0..N {
-            self.constraint_1d[i].reset();
-            self.constraint_1d[i].jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
-            let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
-            let erp = 0.2;
-            self.constraint_1d[i].bias = c_init * (erp / dt);
-            self.constraint_1d[i].inv_eff_mass = 1.0 / (self.constraint_1d[i].jacobian * self.inv_m * self.constraint_1d[i].jacobian.T()).as_float();
-            self.constraint_1d[i].max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
-            self.constraint_1d[i].accum_lambda = 0.0;
-        }  
-    }
-
-    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
-
-        let v = v_concat!(
-            body_A.v,
-            body_A.𝜔,
-            body_B.v,
-            body_B.𝜔
-        );
-
-        let mut dv = v_concat!(
-            body_A.delta_v,
-            body_A.delta_𝜔,
-            body_B.delta_v,
-            body_B.delta_𝜔
-        );
-
-        let ext_dv = v_concat!(
-            body_A.ext_force_dv,
-            body_A.ext_torque_d𝜔,
-            body_B.ext_force_dv,
-            body_B.ext_torque_d𝜔
-        );
-        
-        for i in 0..N {
-            let cons = &mut self.constraint_1d[i];
-
-            let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
-            let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
-            let lambda = cons.inv_eff_mass * rhs;
-
-            let last_accum_lambda = cons.accum_lambda;
-            cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
-            let new_lambda = cons.accum_lambda - last_accum_lambda;
-            let impulse = cons.jacobian.T() * new_lambda;
-    
-            dv += self.inv_m * impulse;
-        }
-
-        body_A.delta_v = dv.v_slice::<2>(0, 0);
-        body_A.delta_𝜔 = dv.v(2, 0);
-        body_B.delta_v = dv.v_slice::<2>(3, 0);
-        body_B.delta_𝜔 = dv.v(5, 0);
-    }
-}
-
-
-struct Pos1dEqConsFunc {
-    pub n_local: Vec2,
-}
-
-impl EqualConsFunc for Pos1dEqConsFunc {
-    // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
-    // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ] in R^1x6
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        let r_A = p_A.origin - body_A.pose.origin;
-        let r_B = p_B.origin - body_B.pose.origin;
-
-        let n = p_A.transform_vector(self.n_local);
-
-        h_concat!(
-            n.T(), 
-            r_A.cross(n), 
-            -n.T(), 
-            -r_B.cross(n)
-        )
-    }
-
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        let n = p_A.transform_vector(self.n_local);
-        (n.T() * (p_A.origin - p_B.origin)).as_float()
-    }
-
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
-
-
-struct Pos1dMotorFunc {
-    pub n_local: Vec2,
-    pub force_max: f64,
-    pub v: f64,
-}
-
-impl EqualConsFunc for Pos1dMotorFunc {
-    // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - n^T pos_diff - v*dt = 0
-    // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        let r_A = p_A.origin - body_A.pose.origin;
-        let r_B = p_B.origin - body_B.pose.origin;
-
-        let n = p_A.transform_vector(self.n_local);
-
-        h_concat!(
-            n.T(), 
-            r_A.cross(n), 
-            -n.T(), 
-            -r_B.cross(n)
-        )
-    }
-
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        let n = p_A.transform_vector(self.n_local);
-        let pos_diff = p_A.origin - p_B.origin;
-        (n.T() * (p_A.origin - p_B.origin) - n.T() * pos_diff).as_float() - self.v * dt
-    }
-
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
-
-
-struct RotEqConsFunc {}
-
-impl EqualConsFunc for RotEqConsFunc {
-
-    // C = o_A - o_B = 0
-    // J = [ 0, 1, 0, -1 ] in R^1x6
-
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        h_concat!(
-            Vec2::ZEROS.T(), 
-            1.0, 
-            Vec2::ZEROS.T(), 
-            -1.0
-        )
-    }
-
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        p_A.angle - p_B.angle
-    }
-
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
-
-
-struct RotMotorConsFunc {
-    torque_max: f64,
-    𝜔: f64
-}
-
-impl EqualConsFunc for RotMotorConsFunc {
-
-    // C = (o_A - o_B) - angle_diff - 𝜔*dt = 0
-    // J = [ 0, 1, 0, -1 ] in R^1x6
-
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        h_concat!(
-            Vec2::ZEROS.T(), 
-            1.0, 
-            Vec2::ZEROS.T(), 
-            -1.0
-        )
-    }
-
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        let angle_diff = p_A.angle - p_B.angle;
-        (p_A.angle - p_B.angle) - angle_diff - self.𝜔*dt
-    }
-
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        self.torque_max * dt
-    }
-}
-
-pub trait InequalConsFunc {
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6>;
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64;
-    fn max_accum_lambda(&self, dt: f64) -> f64;
-}
-
-#[derive(Copy, Clone)]
-struct InequalConsData {
-    inv_eff_mass: f64,
-    jacobian: TMat<f64, 1, 6>,
-    bias: f64,
-    accum_lambda: f64,
-    max_accum_lambda: f64,
-    need_resolve: bool,
-}
-
-impl InequalConsData {
-    pub fn new() -> Self {
-        InequalConsData {
-            inv_eff_mass: 1.0,
-            jacobian: TMat::ZEROS,
-            bias: 0.0,
-            accum_lambda: 0.0,
-            max_accum_lambda: f64::INFINITY,
-            need_resolve: true,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.inv_eff_mass = 1.0;
-        self.jacobian = TMat::ZEROS;
-        self.bias = 0.0;
-        self.accum_lambda = 0.0;
-        self.max_accum_lambda = f64::INFINITY;
-        self.need_resolve = true;
-    }
-}
-
-pub struct InequalConstraints<T: InequalConsFunc, const N: usize> {
-    body_A: usize,
-    body_B: usize,
-    local_frame_body_A: Transform2d,
-    local_frame_body_B: Transform2d,
-    
-    inv_m: TMat<f64, 6, 6>,
-    constraint_1d: [InequalConsData; N],
-    pub cons_funcs: [T; N],
-}
-
-impl <T: InequalConsFunc, const N: usize> InequalConstraints<T, N> {
-    pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, cons_funcs: [T; N]) -> Self {
-        InequalConstraints {
-            body_A,
-            body_B,
-            local_frame_body_A,
-            local_frame_body_B,
-
-            inv_m: TMat::ZEROS,
-            constraint_1d: [InequalConsData::new(); N],
-            cons_funcs,
-        }
-    }
-}
-
-impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N> {
-    fn body_A_id(&self) -> usize {
-        self.body_A
-    }
-    fn body_B_id(&self) -> usize {
-        self.body_B
-    }
-    fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
-        let mut dv = TVec::<f64, 6>::ZEROS;
-        for i in 0..N {
-            dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
+        for i in 0..self.bodies.len() {
+            let body = &mut self.bodies[i];
+            
+            body.v += delta_v[i];
+            body.𝜔 += delta_𝜔[i];
+
+            body.pose.origin += body.v * dt;
+            body.pose.angle += body.𝜔 * dt;
+
+            body.f_ext = Vec2::ZEROS;
+            body.τ_ext = 0.0;
         }
         
-        body_A.delta_v += dv.v_slice::<2>(0, 0);
-        body_A.delta_𝜔 += dv.v(2, 0);
-        body_B.delta_v += dv.v_slice::<2>(3, 0);
-        body_B.delta_𝜔 += dv.v(5, 0);
     }
+}
+
+pub trait Constraint {}
+
+// trait Constraint {
+//     fn body_A_id(&self) -> usize;
+//     fn body_B_id(&self) -> usize;
+//     // fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d);
+//     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64);
+//     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool);
+
+//     fn get_dimension(&self) -> usize;
+//     fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6>;
+
+//     fn get_constraint_data(&self, body_A: &Body2d, body_B: &Body2d, dt: f64) -> Vec<ConsData>;
+// }
+
+// pub trait EqualConsFunc {
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6>;
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64;
+//     fn max_accum_lambda(&self, dt: f64) -> f64;
+// }
+
+// #[derive(Copy, Clone)]
+// struct EqualConsData {
+//     inv_eff_mass: f64,
+//     jacobian: TMat<f64, 1, 6>,
+//     bias: f64,
+//     accum_lambda: f64,
+//     max_accum_lambda: f64,
+//     need_resolve: bool,
+// }
+
+// impl EqualConsData {
+//     pub fn new() -> Self {
+//         EqualConsData {
+//             inv_eff_mass: 1.0,
+//             jacobian: TMat::ZEROS,
+//             bias: 0.0,
+//             accum_lambda: 0.0,
+//             max_accum_lambda: f64::INFINITY,
+//             need_resolve: true,
+//         }
+//     }
+
+//     pub fn reset(&mut self) {
+//         self.inv_eff_mass = 1.0;
+//         self.jacobian = TMat::ZEROS;
+//         self.bias = 0.0;
+//         self.accum_lambda = 0.0;
+//         self.max_accum_lambda = f64::INFINITY;
+//         self.need_resolve = true;
+//     }
+// }
+
+// pub struct EqualConstraints<T: EqualConsFunc, const N: usize> {
+//     body_A: usize,
+//     body_B: usize,
+//     local_frame_body_A: Transform2d,
+//     local_frame_body_B: Transform2d,
     
-    fn get_dimension(&self) -> usize {
-        N
-    }
+//     inv_m: TMat<f64, 6, 6>,
+//     constraint_1d: [EqualConsData; N],
+//     pub cons_funcs: [T; N],
+// }
 
-    fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6> {
-        self.constraint_1d[i].jacobian
-    }
+// impl <T: EqualConsFunc, const N: usize> EqualConstraints<T, N> {
+//     pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, cons_funcs: [T; N]) -> Self {
+//         EqualConstraints {
+//             body_A,
+//             body_B,
+//             local_frame_body_A,
+//             local_frame_body_B,
 
-    fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
+//             inv_m: TMat::ZEROS,
+//             constraint_1d: [EqualConsData::new(); N],
+//             cons_funcs,
+//         }
+//     }
+// }
+
+// impl <T: EqualConsFunc, const N: usize> Constraint for EqualConstraints<T, N> {
+//     fn body_A_id(&self) -> usize {
+//         self.body_A
+//     }
+//     fn body_B_id(&self) -> usize {
+//         self.body_B
+//     }
+//     // fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
+//     //     let mut dv = TVec::<f64, 6>::ZEROS;
+//     //     for i in 0..N {
+//     //         dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
+//     //     }
+
+//     //     body_A.delta_v += dv.v_slice::<2>(0, 0);
+//     //     body_A.delta_𝜔 += dv.v(2, 0);
+//     //     body_B.delta_v += dv.v_slice::<2>(3, 0);
+//     //     body_B.delta_𝜔 += dv.v(5, 0);
+//     // }
+
+//     fn get_dimension(&self) -> usize {
+//         N
+//     }
+
+//     fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6> {
+//         self.constraint_1d[i].jacobian
+//     }
+
+    
+//     fn get_constraint_data(&self, body_A: &Body2d, body_B: &Body2d, dt: f64) -> Vec<ConsData> {
+//         let p_A = body_A.pose * self.local_frame_body_A;
+//         let p_B = body_B.pose * self.local_frame_body_B;
+
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
+
+//         let mut result = Vec::<ConsData>::new();
+
+//         for i in 0..N {
+//             let mut cons_data = ConsData::new();
+//             cons_data.body_A_id = self.body_A_id();
+//             cons_data.body_B_id = self.body_B_id();
+//             cons_data.jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
+//             let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
+//             let erp = 0.2;
+//             cons_data.bias = c_init * (erp / dt);
+//             cons_data.inv_eff_mass = 1.0 / (cons_data.jacobian * self.inv_m * cons_data.jacobian.T()).as_float();
+//             cons_data.max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
+//             cons_data.accum_lambda = 0.0;
+//             result.push(cons_data);
+//         }
+
+//         result
+//     }
+
+//     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
         
-        let p_A = body_A.pose * self.local_frame_body_A;
-        let p_B = body_B.pose * self.local_frame_body_B;
+//         let p_A = body_A.pose * self.local_frame_body_A;
+//         let p_B = body_B.pose * self.local_frame_body_B;
 
-        let r_A = p_A.origin - body_A.pose.origin;
-        let r_B = p_B.origin - body_B.pose.origin;
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
 
-        self.inv_m = d_concat!(
-            Mat22::diag([body_A.inv_mass; 2]),
-            body_A.inv_inertia,
-            Mat22::diag([body_B.inv_mass; 2]),
-            body_B.inv_inertia
-        );
+//         self.inv_m = d_concat!(
+//             Mat22::diag([body_A.inv_mass; 2]),
+//             body_A.inv_inertia,
+//             Mat22::diag([body_B.inv_mass; 2]),
+//             body_B.inv_inertia
+//         );
 
-        for i in 0..N {
-            self.constraint_1d[i].reset();
-            self.constraint_1d[i].jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
-            let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
-            if c_init >= 0.0 {
-                self.constraint_1d[i].need_resolve = false;
-                continue;
-            }
+//         for i in 0..N {
+//             self.constraint_1d[i].reset();
+//             self.constraint_1d[i].jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
+//             let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
+//             let erp = 0.2;
+//             self.constraint_1d[i].bias = c_init * (erp / dt);
+//             self.constraint_1d[i].inv_eff_mass = 1.0 / (self.constraint_1d[i].jacobian * self.inv_m * self.constraint_1d[i].jacobian.T()).as_float();
+//             self.constraint_1d[i].max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
+//             self.constraint_1d[i].accum_lambda = 0.0;
+//         }  
+//     }
 
-            let erp = 0.2;
-            self.constraint_1d[i].bias = c_init * (erp / dt);
-            self.constraint_1d[i].inv_eff_mass = 1.0 / (self.constraint_1d[i].jacobian * self.inv_m * self.constraint_1d[i].jacobian.T()).as_float();
-            self.constraint_1d[i].max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
-            self.constraint_1d[i].accum_lambda = 0.0;
-        }  
-    }
 
-    fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
+//     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
 
-        let v = v_concat!(
-            body_A.v,
-            body_A.𝜔,
-            body_B.v,
-            body_B.𝜔
-        );
+//         // let v = v_concat!(
+//         //     body_A.v,
+//         //     body_A.𝜔,
+//         //     body_B.v,
+//         //     body_B.𝜔
+//         // );
 
-        let mut dv = v_concat!(
-            body_A.delta_v,
-            body_A.delta_𝜔,
-            body_B.delta_v,
-            body_B.delta_𝜔
-        );
+//         // let mut dv = v_concat!(
+//         //     body_A.delta_v,
+//         //     body_A.delta_𝜔,
+//         //     body_B.delta_v,
+//         //     body_B.delta_𝜔
+//         // );
 
-        let ext_dv = v_concat!(
-            body_A.ext_force_dv,
-            body_A.ext_torque_d𝜔,
-            body_B.ext_force_dv,
-            body_B.ext_torque_d𝜔
-        );
+//         // let ext_dv = v_concat!(
+//         //     body_A.ext_force_dv,
+//         //     body_A.ext_torque_d𝜔,
+//         //     body_B.ext_force_dv,
+//         //     body_B.ext_torque_d𝜔
+//         // );
         
-        for i in 0..N {
-            let cons = &mut self.constraint_1d[i];
+//         // for i in 0..N {
+//         //     let cons = &mut self.constraint_1d[i];
 
-            if !cons.need_resolve {
-                continue;
-            }
+//         //     let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+//         //     let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
+//         //     let lambda = cons.inv_eff_mass * rhs;
 
-            let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
-            let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
-            let lambda = cons.inv_eff_mass * rhs;
-
-            let last_accum_lambda = cons.accum_lambda;
-            cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
-            let new_lambda = cons.accum_lambda - last_accum_lambda;
-            let impulse = cons.jacobian.T() * new_lambda;
+//         //     let last_accum_lambda = cons.accum_lambda;
+//         //     cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
+//         //     let new_lambda = cons.accum_lambda - last_accum_lambda;
+//         //     let impulse = cons.jacobian.T() * new_lambda;
     
-            dv += self.inv_m * impulse;
-        }
+//         //     dv += self.inv_m * impulse;
+//         // }
 
-        body_A.delta_v = dv.v_slice::<2>(0, 0);
-        body_A.delta_𝜔 = dv.v(2, 0);
-        body_B.delta_v = dv.v_slice::<2>(3, 0);
-        body_B.delta_𝜔 = dv.v(5, 0);
-    }
-}
+//         // body_A.delta_v = dv.v_slice::<2>(0, 0);
+//         // body_A.delta_𝜔 = dv.v(2, 0);
+//         // body_B.delta_v = dv.v_slice::<2>(3, 0);
+//         // body_B.delta_𝜔 = dv.v(5, 0);
+//     }
+// }
 
 
-struct Pos1dMinConsFunc {
-    n_local: Vec2,
-    dist_min: f64,
-}
+// struct Pos1dEqConsFunc {
+//     pub n_local: Vec2,
+// }
 
-impl InequalConsFunc for Pos1dMinConsFunc {
-    // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - dist_min >= 0
-    // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
+// impl EqualConsFunc for Pos1dEqConsFunc {
+//     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
+//     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ] in R^1x6
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
+
+//         let n = p_A.transform_vector(self.n_local);
+
+//         h_concat!(
+//             n.T(), 
+//             r_A.cross(n), 
+//             -n.T(), 
+//             -r_B.cross(n)
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         let n = p_A.transform_vector(self.n_local);
+//         (n.T() * (p_A.origin - p_B.origin)).as_float()
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }
+
+
+// struct Pos1dMotorFunc {
+//     pub n_local: Vec2,
+//     pub force_max: f64,
+//     pub v: f64,
+// }
+
+// impl EqualConsFunc for Pos1dMotorFunc {
+//     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - n^T pos_diff - v*dt = 0
+//     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
+
+//         let n = p_A.transform_vector(self.n_local);
+
+//         h_concat!(
+//             n.T(), 
+//             r_A.cross(n), 
+//             -n.T(), 
+//             -r_B.cross(n)
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         let n = p_A.transform_vector(self.n_local);
+//         let pos_diff = p_A.origin - p_B.origin;
+//         (n.T() * (p_A.origin - p_B.origin) - n.T() * pos_diff).as_float() - self.v * dt
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }
+
+
+// struct RotEqConsFunc {}
+
+// impl EqualConsFunc for RotEqConsFunc {
+
+//     // C = o_A - o_B = 0
+//     // J = [ 0, 1, 0, -1 ] in R^1x6
+
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         h_concat!(
+//             Vec2::ZEROS.T(), 
+//             1.0, 
+//             Vec2::ZEROS.T(), 
+//             -1.0
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         p_A.angle - p_B.angle
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }
+
+
+// struct RotMotorConsFunc {
+//     torque_max: f64,
+//     𝜔: f64
+// }
+
+// impl EqualConsFunc for RotMotorConsFunc {
+
+//     // C = (o_A - o_B) - angle_diff - 𝜔*dt = 0
+//     // J = [ 0, 1, 0, -1 ] in R^1x6
+
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         h_concat!(
+//             Vec2::ZEROS.T(), 
+//             1.0, 
+//             Vec2::ZEROS.T(), 
+//             -1.0
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         let angle_diff = p_A.angle - p_B.angle;
+//         (p_A.angle - p_B.angle) - angle_diff - self.𝜔*dt
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         self.torque_max * dt
+//     }
+// }
+
+// pub trait InequalConsFunc {
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6>;
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64;
+//     fn max_accum_lambda(&self, dt: f64) -> f64;
+// }
+
+// #[derive(Copy, Clone)]
+// struct InequalConsData {
+//     inv_eff_mass: f64,
+//     jacobian: TMat<f64, 1, 6>,
+//     bias: f64,
+//     accum_lambda: f64,
+//     max_accum_lambda: f64,
+//     need_resolve: bool,
+// }
+
+// impl InequalConsData {
+//     pub fn new() -> Self {
+//         InequalConsData {
+//             inv_eff_mass: 1.0,
+//             jacobian: TMat::ZEROS,
+//             bias: 0.0,
+//             accum_lambda: 0.0,
+//             max_accum_lambda: f64::INFINITY,
+//             need_resolve: true,
+//         }
+//     }
+
+//     pub fn reset(&mut self) {
+//         self.inv_eff_mass = 1.0;
+//         self.jacobian = TMat::ZEROS;
+//         self.bias = 0.0;
+//         self.accum_lambda = 0.0;
+//         self.max_accum_lambda = f64::INFINITY;
+//         self.need_resolve = true;
+//     }
+// }
+
+// pub struct InequalConstraints<T: InequalConsFunc, const N: usize> {
+//     body_A: usize,
+//     body_B: usize,
+//     local_frame_body_A: Transform2d,
+//     local_frame_body_B: Transform2d,
     
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        let r_A = p_A.origin - body_A.pose.origin;
-        let r_B = p_B.origin - body_B.pose.origin;
+//     inv_m: TMat<f64, 6, 6>,
+//     constraint_1d: [InequalConsData; N],
+//     pub cons_funcs: [T; N],
+// }
 
-        let n = p_A.transform_vector(self.n_local);
+// impl <T: InequalConsFunc, const N: usize> InequalConstraints<T, N> {
+//     pub fn new(body_A: usize, body_B: usize, local_frame_body_A: Transform2d, local_frame_body_B: Transform2d, cons_funcs: [T; N]) -> Self {
+//         InequalConstraints {
+//             body_A,
+//             body_B,
+//             local_frame_body_A,
+//             local_frame_body_B,
 
-        h_concat!(
-            n.T(), 
-            r_A.cross(n), 
-            -n.T(), 
-            -r_B.cross(n)
-        )
-    }
+//             inv_m: TMat::ZEROS,
+//             constraint_1d: [InequalConsData::new(); N],
+//             cons_funcs,
+//         }
+//     }
+// }
 
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        let n = p_A.transform_vector(self.n_local);
-        (n.T() * (p_A.origin - p_B.origin)).as_float() - self.dist_min
-    }
-
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
-
-struct Pos1dMaxConsFunc {
-    n_local: Vec2,
-    dist_max: f64,
-}
-
-impl InequalConsFunc for Pos1dMaxConsFunc {
-    // C = dist_min - n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) >= 0
-    // J = [ -n^T, -(r_A x n)^T, n^T, (r_B x n)^T ]
+// impl <T: InequalConsFunc, const N: usize> Constraint for InequalConstraints<T, N> {
+//     fn body_A_id(&self) -> usize {
+//         self.body_A
+//     }
+//     fn body_B_id(&self) -> usize {
+//         self.body_B
+//     }
+//     // fn warm_up(&mut self, body_A: &mut Body2d, body_B: &mut Body2d) {
+//     //     let mut dv = TVec::<f64, 6>::ZEROS;
+//     //     for i in 0..N {
+//     //         dv += self.inv_m * self.constraint_1d[i].jacobian.T() * self.constraint_1d[i].accum_lambda;
+//     //     }
+        
+//     //     body_A.delta_v += dv.v_slice::<2>(0, 0);
+//     //     body_A.delta_𝜔 += dv.v(2, 0);
+//     //     body_B.delta_v += dv.v_slice::<2>(3, 0);
+//     //     body_B.delta_𝜔 += dv.v(5, 0);
+//     // }
     
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        let r_A = p_A.origin - body_A.pose.origin;
-        let r_B = p_B.origin - body_B.pose.origin;
+//     fn get_dimension(&self) -> usize {
+//         N
+//     }
 
-        let n = p_A.transform_vector(self.n_local);
+//     fn get_jacobian(&self, i: usize) -> TMat<f64, 1, 6> {
+//         self.constraint_1d[i].jacobian
+//     }
 
-        h_concat!(
-            -n.T(), 
-            -r_A.cross(n), 
-            n.T(), 
-            r_B.cross(n)
-        )
-    }
+//     fn get_constraint_data(&self, body_A: &Body2d, body_B: &Body2d, dt: f64) -> Vec<ConsData> {
+//         let p_A = body_A.pose * self.local_frame_body_A;
+//         let p_B = body_B.pose * self.local_frame_body_B;
 
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        let n = p_A.transform_vector(self.n_local);
-        self.dist_max - (n.T() * (p_A.origin - p_B.origin)).as_float()
-    }
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
 
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
+//         let mut result = Vec::<ConsData>::new();
 
+//         for i in 0..N {
+//             let mut cons_data = ConsData::new();
+//             cons_data.body_A_id = self.body_A_id();
+//             cons_data.body_B_id = self.body_B_id();
+//             cons_data.jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
+//             let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
+//             if c_init >= 0.0 {
+//                 cons_data.need_resolve = false;
+//                 continue;
+//             }
 
-struct AngleMinConsFunc {
-    angle_min: f64,
-}
+//             let erp = 0.2;
+//             cons_data.bias = c_init * (erp / dt);
+//             cons_data.inv_eff_mass = 1.0 / (cons_data.jacobian * self.inv_m * cons_data.jacobian.T()).as_float();
+//             cons_data.max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
+//             cons_data.accum_lambda = 0.0;
+//             result.push(cons_data);
+//         }  
 
-impl InequalConsFunc for AngleMinConsFunc {
-    // C = (o_A - o_B) - angle_min >= 0
-    // J = [ 0, 1, 0, -1 ] in R^1x6
+//         result
+//     }
+
+//     fn setup(&mut self, body_A: &Body2d, body_B: &Body2d, dt: f64) {
+        
+//         let p_A = body_A.pose * self.local_frame_body_A;
+//         let p_B = body_B.pose * self.local_frame_body_B;
+
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
+
+//         self.inv_m = d_concat!(
+//             Mat22::diag([body_A.inv_mass; 2]),
+//             body_A.inv_inertia,
+//             Mat22::diag([body_B.inv_mass; 2]),
+//             body_B.inv_inertia
+//         );
+
+//         for i in 0..N {
+//             self.constraint_1d[i].reset();
+//             self.constraint_1d[i].jacobian = self.cons_funcs[i].jacobian(body_A, body_B, p_A, p_B);
+//             let c_init = self.cons_funcs[i].c_init(body_A, body_B, p_A, p_B, dt);
+//             if c_init >= 0.0 {
+//                 self.constraint_1d[i].need_resolve = false;
+//                 continue;
+//             }
+
+//             let erp = 0.2;
+//             self.constraint_1d[i].bias = c_init * (erp / dt);
+//             self.constraint_1d[i].inv_eff_mass = 1.0 / (self.constraint_1d[i].jacobian * self.inv_m * self.constraint_1d[i].jacobian.T()).as_float();
+//             self.constraint_1d[i].max_accum_lambda = self.cons_funcs[i].max_accum_lambda(dt);
+//             self.constraint_1d[i].accum_lambda = 0.0;
+//         }  
+//     }
+
+//     fn iteration(&mut self, body_A: &mut Body2d, body_B: &mut Body2d, is_pos_iter: bool) {
+
+//         // let v = v_concat!(
+//         //     body_A.v,
+//         //     body_A.𝜔,
+//         //     body_B.v,
+//         //     body_B.𝜔
+//         // );
+
+//         // let mut dv = v_concat!(
+//         //     body_A.delta_v,
+//         //     body_A.delta_𝜔,
+//         //     body_B.delta_v,
+//         //     body_B.delta_𝜔
+//         // );
+
+//         // let ext_dv = v_concat!(
+//         //     body_A.ext_force_dv,
+//         //     body_A.ext_torque_d𝜔,
+//         //     body_B.ext_force_dv,
+//         //     body_B.ext_torque_d𝜔
+//         // );
+        
+//         // for i in 0..N {
+//         //     let cons = &mut self.constraint_1d[i];
+
+//         //     if !cons.need_resolve {
+//         //         continue;
+//         //     }
+
+//         //     let jv = (cons.jacobian * (v + dv + ext_dv)).as_float();
+//         //     let rhs = if is_pos_iter { -jv - cons.bias } else { -jv };
+//         //     let lambda = cons.inv_eff_mass * rhs;
+
+//         //     let last_accum_lambda = cons.accum_lambda;
+//         //     cons.accum_lambda = (last_accum_lambda + lambda).clamp(-cons.max_accum_lambda, cons.max_accum_lambda);
+//         //     let new_lambda = cons.accum_lambda - last_accum_lambda;
+//         //     let impulse = cons.jacobian.T() * new_lambda;
     
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        h_concat!(
-            Vec2::ZEROS.T(), 
-            1.0, 
-            Vec2::ZEROS.T(), 
-            -1.0
-        )
-    }
+//         //     dv += self.inv_m * impulse;
+//         // }
 
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        (p_A.angle - p_B.angle) - self.angle_min
-    }
+//         // body_A.delta_v = dv.v_slice::<2>(0, 0);
+//         // body_A.delta_𝜔 = dv.v(2, 0);
+//         // body_B.delta_v = dv.v_slice::<2>(3, 0);
+//         // body_B.delta_𝜔 = dv.v(5, 0);
+//     }
+// }
 
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
 
-struct AngleMaxConsFunc {
-    angle_max: f64,
-}
+// struct Pos1dMinConsFunc {
+//     n_local: Vec2,
+//     dist_min: f64,
+// }
 
-impl InequalConsFunc for AngleMaxConsFunc {
-    // C = angle_max - (o_A - o_B) >= 0
-    // J = [ 0, -1, 0, 1 ] in R^1x6
+// impl InequalConsFunc for Pos1dMinConsFunc {
+//     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - dist_min >= 0
+//     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
+    
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
 
-    fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
-        h_concat!(
-            Vec2::ZEROS.T(), 
-            -1.0, 
-            Vec2::ZEROS.T(), 
-            1.0
-        )
-    }
+//         let n = p_A.transform_vector(self.n_local);
 
-    fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
-        self.angle_max - (p_A.angle - p_B.angle)
-    }
+//         h_concat!(
+//             n.T(), 
+//             r_A.cross(n), 
+//             -n.T(), 
+//             -r_B.cross(n)
+//         )
+//     }
 
-    fn max_accum_lambda(&self, dt: f64) -> f64 {
-        f64::INFINITY
-    }
-}
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         let n = p_A.transform_vector(self.n_local);
+//         (n.T() * (p_A.origin - p_B.origin)).as_float() - self.dist_min
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }
+
+// struct Pos1dMaxConsFunc {
+//     n_local: Vec2,
+//     dist_max: f64,
+// }
+
+// impl InequalConsFunc for Pos1dMaxConsFunc {
+//     // C = dist_min - n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) >= 0
+//     // J = [ -n^T, -(r_A x n)^T, n^T, (r_B x n)^T ]
+    
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         let r_A = p_A.origin - body_A.pose.origin;
+//         let r_B = p_B.origin - body_B.pose.origin;
+
+//         let n = p_A.transform_vector(self.n_local);
+
+//         h_concat!(
+//             -n.T(), 
+//             -r_A.cross(n), 
+//             n.T(), 
+//             r_B.cross(n)
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         let n = p_A.transform_vector(self.n_local);
+//         self.dist_max - (n.T() * (p_A.origin - p_B.origin)).as_float()
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }
+
+
+// struct AngleMinConsFunc {
+//     angle_min: f64,
+// }
+
+// impl InequalConsFunc for AngleMinConsFunc {
+//     // C = (o_A - o_B) - angle_min >= 0
+//     // J = [ 0, 1, 0, -1 ] in R^1x6
+    
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         h_concat!(
+//             Vec2::ZEROS.T(), 
+//             1.0, 
+//             Vec2::ZEROS.T(), 
+//             -1.0
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         (p_A.angle - p_B.angle) - self.angle_min
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }
+
+// struct AngleMaxConsFunc {
+//     angle_max: f64,
+// }
+
+// impl InequalConsFunc for AngleMaxConsFunc {
+//     // C = angle_max - (o_A - o_B) >= 0
+//     // J = [ 0, -1, 0, 1 ] in R^1x6
+
+//     fn jacobian(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d) -> TMat<f64, 1, 6> {
+//         h_concat!(
+//             Vec2::ZEROS.T(), 
+//             -1.0, 
+//             Vec2::ZEROS.T(), 
+//             1.0
+//         )
+//     }
+
+//     fn c_init(&self, body_A: &Body2d, body_B: &Body2d, p_A: Transform2d, p_B: Transform2d, dt: f64) -> f64 {
+//         self.angle_max - (p_A.angle - p_B.angle)
+//     }
+
+//     fn max_accum_lambda(&self, dt: f64) -> f64 {
+//         f64::INFINITY
+//     }
+// }

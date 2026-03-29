@@ -139,6 +139,14 @@ impl<T: FloatNum> TVec2<T> {
         let normalized = self.normalize();
         normalized.y().atan2(normalized.x())
     }
+
+    pub fn from_angle(angle: T) -> Self {
+        let sin = angle.sin();
+        let cos = angle.cos();
+        TVec2::<T>::new(
+            [cos, sin]
+        )
+    }
 }
 
 impl<T: FloatNum, const R: usize, const C: usize> std::ops::Add for TMat<T, R, C> {
@@ -596,8 +604,8 @@ impl<T: FloatNum> std::ops::Add<TDynMat<T>> for &TDynMat<T> {
     }
 }
 
-impl<T: FloatNum> std::ops::AddAssign for TDynMat<T> {
-    fn add_assign(&mut self, rhs: Self) {
+impl<T: FloatNum> std::ops::AddAssign<&TDynMat<T>> for TDynMat<T> {
+    fn add_assign(&mut self, rhs: &TDynMat<T>) {
         assert_eq!(self.n_rows(), rhs.n_rows(), "matrix dimensions do not match");
         assert_eq!(self.n_cols(), rhs.n_cols(), "matrix dimensions do not match");
         
@@ -606,6 +614,12 @@ impl<T: FloatNum> std::ops::AddAssign for TDynMat<T> {
                 *self.v_mut(i, j) += rhs.v(i, j);
             }
         }
+    }
+}
+
+impl<T: FloatNum> std::ops::AddAssign for TDynMat<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.add_assign(&rhs)
     }
 }
 

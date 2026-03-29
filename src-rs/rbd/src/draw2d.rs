@@ -105,7 +105,7 @@ impl Draw2d {
         self.camera.on_changed();
     }
 
-    pub fn draw(&self, solver: &Solver2d) {
+    pub fn draw(&self, solver: &Scene2d) {
         self.begin_frame();
         // self.draw_test();
         self.draw_solver(solver);
@@ -115,7 +115,7 @@ impl Draw2d {
         mq::clear_background(mq::BLACK);
     }
    
-    fn draw_solver(&self,solver: &Solver2d) {
+    fn draw_solver(&self,solver: &Scene2d) {
         for body in solver.bodies() {
             let geometry = body.geometry();
             let pose = body.pose();
