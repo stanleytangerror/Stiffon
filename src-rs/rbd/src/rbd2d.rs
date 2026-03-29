@@ -196,6 +196,7 @@ impl AngularJoint2d {
 pub struct AngularMotor2d {
     pub body_A_id: usize,
     pub body_B_id: usize,
+    pub angle_A_minus_B: f64,
     pub torque_max: f64,
     pub 𝜔: f64,
 }
@@ -208,6 +209,7 @@ impl AngularMotor2d {
         AngularMotor2d {
             body_A_id,
             body_B_id,
+            angle_A_minus_B: 0.0,
             torque_max,
             𝜔: 𝜔_degrees.to_radians(),
         }
@@ -238,7 +240,7 @@ impl PrismaticJoint2d {
     pub fn new(bodies: &Vec<Body2d>, 
         body_A_id: usize, body_B_id: usize, 
         pos_world_A: Vec2, pos_world_B: Vec2, 
-        dir_world_A: Vec2, angle_A_minus_B_degrees: Option<f64>,
+        dir_world_A: Vec2, angle_A_minus_B_degrees: f64,
         has_motor: bool, force_max: Option<f64>, v: Option<f64>,
         has_limit: bool, dist_min: Option<f64>, dist_max: Option<f64>,
     ) -> Self {
@@ -246,7 +248,7 @@ impl PrismaticJoint2d {
         let body_B = &bodies[body_B_id];
 
         let local_angle_A = body_A.pose.inv().transform_vector(dir_world_A).angle();
-        let local_angle_B = local_angle_A - angle_A_minus_B_degrees.unwrap_or(0.0).to_radians();
+        let local_angle_B = local_angle_A - angle_A_minus_B_degrees.to_radians();
         let local_pos_A = body_A.pose.inv().transform_position(pos_world_A);
         let local_pos_B = body_B.pose.inv().transform_position(pos_world_B);
 
@@ -307,12 +309,12 @@ impl RevoluteJoint2d {
 
             has_motor,
             torque_max,
-            𝜔: 𝜔_degrees.to_radians(),
+            𝜔: if let Some(𝜔) = 𝜔_degrees { Some(𝜔.to_radians()) } else { None },
             angle_A_minus_B: 0.0,
 
             has_limit,
-            angle_min: angle_min_degrees.to_radians(),
-            angle_max: angle_max_degrees.to_radians(),
+            angle_min: if let Some(angle_min) = angle_min_degrees { Some(angle_min.to_radians()) } else { None },
+            angle_max: if let Some(angle_max) = angle_max_degrees { Some(angle_max.to_radians()) } else { None },
         }
     }
 }
@@ -320,7 +322,7 @@ impl RevoluteJoint2d {
 pub struct Scene2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
-    constraints: Vec<Box<dyn Constraint>>,
+    constraints: Vec<Box<dyn GenCons2dData>>,
     global_impulse_solver: GlobalImpulseSolver2d,
 }
 
@@ -388,8 +390,7 @@ impl Scene2d {
     pub fn add_prismatic_joint(&mut self, 
         body_A_id: usize, body_B_id: usize, 
         pos_world_A: Vec2, pos_world_B: Vec2, 
-        dir_world_A: Vec2, 
-        has_angle_lock: bool, angle_A_minus_B: Option<f64>,
+        dir_world_A: Vec2, angle_A_minus_B: f64,
         has_motor: bool, force_max: Option<f64>, v: Option<f64>,
         has_limit: bool, dist_min: Option<f64>, dist_max: Option<f64>,
     ) -> usize {

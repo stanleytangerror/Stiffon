@@ -63,17 +63,13 @@ impl Cons2dData {
 }
 
 fn gen_cons_data_pos1d_lock(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, n: Vec2, p_A: Vec2, p_B: Vec2, dt: f64) -> Cons2dData {
-    let cons_data = &mut Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
 
     let r_A = p_A - body_A.pose.origin;
     let r_B = p_B - body_B.pose.origin;
 
     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) in R
     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ] in R^1x6
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         n.T(), 
         r_A.cross(n), 
         -n.T(), 
@@ -82,25 +78,28 @@ fn gen_cons_data_pos1d_lock(body_A_id: usize, body_B_id: usize, body_A: &Body2d,
     let c_init = (n.T() * (p_A - p_B)).as_float();
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = f64::INFINITY;
-    cons_data.accum_lambda = 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = f64::INFINITY;
+    let accum_lambda = 0.0;
 
-    cons_data  
+    Cons2dData::Equal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+    }
 }
 
 fn gen_cons_data_pos1d_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, n: Vec2, p_A: Vec2, p_B: Vec2, disp_A_miuns_B: f64, force_max: f64, v: f64, dt: f64) -> Cons2dData {
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
 
     let r_A = p_A - body_A.pose.origin;
     let r_B = p_B - body_B.pose.origin;
 
     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - n^T pos_diff - v*dt = 0
     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         n.T(), 
         r_A.cross(n), 
         -n.T(), 
@@ -110,25 +109,27 @@ fn gen_cons_data_pos1d_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d
     let c_init = (n.T() * (p_A - p_B)).as_float() - disp_A_miuns_B - v * dt;
 
     let erp = 1.0;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = force_max * dt;
-    cons_data.accum_lambda = 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = force_max * dt;
+    let accum_lambda = 0.0;
 
-    cons_data    
+    Cons2dData::Equal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+    }
 }
 
 fn gen_cons_data_pos1d_limit_min(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, n: Vec2, p_A: Vec2, p_B: Vec2, disp_A_minus_B_min: f64, dt: f64) -> Cons2dData {
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
-
     let r_A = p_A - body_A.pose.origin;
     let r_B = p_B - body_B.pose.origin;
 
     // C = n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) - dist_min >= 0
     // J = [ n^T, (r_A x n)^T, -n^T, -(r_B x n)^T ]
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         n.T(), 
         r_A.cross(n), 
         -n.T(), 
@@ -138,28 +139,31 @@ fn gen_cons_data_pos1d_limit_min(body_A_id: usize, body_B_id: usize, body_A: &Bo
     let c_init = (n.T() * (p_A - p_B)).as_float() - disp_A_minus_B_min;
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = f64::INFINITY;
-    cons_data.accum_lambda = 0.0;
-    cons_data.need_resolve = c_init < 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = f64::INFINITY;
+    let accum_lambda = 0.0;
+    let need_resolve = c_init < 0.0;
 
-    cons_data    
+    Cons2dData::Inequal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+        need_resolve: need_resolve,
+    }
 }
 
 
 fn gen_cons_data_pos1d_limit_max(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, n: Vec2, p_A: Vec2, p_B: Vec2, disp_A_minus_B_max: f64, dt: f64) -> Cons2dData {
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
-
     let r_A = p_A - body_A.pose.origin;
     let r_B = p_B - body_B.pose.origin;
 
     // C = dist_max - n^T (v_A + ω_A × r_A - v_B - ω_B × r_B) >= 0
     // J = [ -n^T, -(r_A x n)^T, n^T, (r_B x n)^T ]
     
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         n.T(), 
         r_A.cross(n), 
         -n.T(), 
@@ -169,25 +173,28 @@ fn gen_cons_data_pos1d_limit_max(body_A_id: usize, body_B_id: usize, body_A: &Bo
     let c_init = disp_A_minus_B_max - (n.T() * (p_A - p_B)).as_float();
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = f64::INFINITY;
-    cons_data.accum_lambda = 0.0;
-    cons_data.need_resolve = c_init < 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = f64::INFINITY;
+    let accum_lambda = 0.0;
+    let need_resolve = c_init < 0.0;
 
-    cons_data    
+    Cons2dData::Inequal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+        need_resolve: need_resolve,
+    }
 }
 
 
 fn gen_cons_data_ang_lock(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, angle_A_minus_B: f64, dt: f64) -> Cons2dData {
 
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
-
     // C = o_A - o_B - o_diff = 0
     // J = [ 0, 1, 0, -1 ] in R^1x6
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         Vec2::ZEROS.T(), 
         1.0, 
         Vec2::ZEROS.T(), 
@@ -196,23 +203,25 @@ fn gen_cons_data_ang_lock(body_A_id: usize, body_B_id: usize, body_A: &Body2d, b
     let c_init = body_A.pose.angle - body_B.pose.angle - angle_A_minus_B;
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = f64::INFINITY;
-    cons_data.accum_lambda = 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = f64::INFINITY;
+    let accum_lambda = 0.0;
     
-    cons_data
+    Cons2dData::Equal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+    }
 }
 
 fn gen_cons_data_ang_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, angle_A_minus_B: f64, torque_max: f64, 𝜔: f64, dt: f64) -> Cons2dData {
 
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
-
     // C = (o_A - o_B) - angle_diff - 𝜔*dt = 0
     // J = [ 0, 1, 0, -1 ] in R^1x6
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         Vec2::ZEROS.T(), 
         1.0, 
         Vec2::ZEROS.T(), 
@@ -222,23 +231,25 @@ fn gen_cons_data_ang_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, 
     let c_init = (body_A.pose.angle - body_B.pose.angle) - angle_A_minus_B - 𝜔*dt;
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = torque_max * dt;
-    cons_data.accum_lambda = 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = torque_max * dt;
+    let accum_lambda = 0.0;
     
-    cons_data
+    Cons2dData::Equal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+    }
 }
 
 fn gen_cons_data_ang_limit_min(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, angle_A_minus_B_min: f64, dt: f64) -> Cons2dData {
 
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
-
     // C = (o_A - o_B) - angle_min >= 0
     // J = [ 0, 1, 0, -1 ] in R^1x6
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         Vec2::ZEROS.T(), 
         1.0, 
         Vec2::ZEROS.T(), 
@@ -248,24 +259,27 @@ fn gen_cons_data_ang_limit_min(body_A_id: usize, body_B_id: usize, body_A: &Body
     let c_init = (body_A.pose.angle - body_B.pose.angle) - angle_A_minus_B_min;
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = f64::INFINITY;
-    cons_data.accum_lambda = 0.0;
-    cons_data.need_resolve = c_init < 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = f64::INFINITY;
+    let accum_lambda = 0.0;
+    let need_resolve = c_init < 0.0;
     
-    cons_data
+    Cons2dData::Inequal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+        need_resolve: need_resolve,
+    }
 }
 
 fn gen_cons_data_ang_limit_max(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, angle_A_minus_B_max: f64, dt: f64) -> Cons2dData {
 
-    let mut cons_data = Cons2dData::new_equal_data();
-
-    cons_data.body_A_id = body_A_id;
-    cons_data.body_B_id = body_B_id;
-
     // C = angle_max - (o_A - o_B) >= 0
     // J = [ 0, 1, 0, -1 ] in R^1x6
-    cons_data.jacobian = h_concat!(
+    let jacobian = h_concat!(
         Vec2::ZEROS.T(), 
         1.0, 
         Vec2::ZEROS.T(), 
@@ -275,15 +289,23 @@ fn gen_cons_data_ang_limit_max(body_A_id: usize, body_B_id: usize, body_A: &Body
     let c_init = angle_A_minus_B_max - (body_A.pose.angle - body_B.pose.angle);
 
     let erp = 0.2;
-    cons_data.bias = c_init * (erp / dt);
-    cons_data.max_accum_lambda = f64::INFINITY;
-    cons_data.accum_lambda = 0.0;
-    cons_data.need_resolve = c_init < 0.0;
+    let bias = c_init * (erp / dt);
+    let max_accum_lambda = f64::INFINITY;
+    let accum_lambda = 0.0;
+    let need_resolve = c_init < 0.0;
     
-    cons_data
+    Cons2dData::Inequal {
+        body_A_id: body_A_id,
+        body_B_id: body_B_id,
+        jacobian: jacobian,
+        bias: bias,
+        accum_lambda: accum_lambda,
+        max_accum_lambda: max_accum_lambda,
+        need_resolve: need_resolve,
+    }
 }
 
-trait GenCons2dData {
+pub trait GenCons2dData {
     fn gen_cons_data(&self, bodies: &Vec<Body2d>, dt: f64) -> Vec<Cons2dData>;
 }
 
@@ -330,8 +352,8 @@ impl GenCons2dData for PrismaticJoint2d {
         let body_A = &bodies[self.body_A_id];
         let body_B = &bodies[self.body_B_id];
 
-        let p_A = body_A.pose.transform_point(self.local_pos_A);
-        let p_B = body_B.pose.transform_point(self.local_pos_B);
+        let p_A = body_A.pose.transform_position(self.local_pos_A);
+        let p_B = body_B.pose.transform_position(self.local_pos_B);
         let axis_A = body_A.pose.transform_vector(Vec2::from_angle(self.local_angle_A));
 
         let mut result = Vec::<Cons2dData>::new();
@@ -385,7 +407,7 @@ pub struct GlobalImpulseSolver2d {
 }
 
 impl GlobalImpulseSolver2d {
-    pub fn solve(&mut self, bodies: &Vec<Body2d>, constraints: &Vec<Box<dyn Constraint>>, dt: f64) -> (Vec<Vec2>, Vec<f64>) {
+    pub fn solve(&mut self, bodies: &Vec<Body2d>, constraints: &Vec<Box<dyn GenCons2dData>>, dt: f64) -> (Vec<Vec2>, Vec<f64>) {
         let n_bodies = bodies.len();
 
         let mut dv_ext = TDynMat::<f64>::zeros(n_bodies * 3, 1);
@@ -398,16 +420,20 @@ impl GlobalImpulseSolver2d {
 
         let mut constraint_data = Vec::<Cons2dData>::new();
         for c in constraints {
-
             let c_data = c.gen_cons_data(bodies, dt);
-            // let c_data = c.get_constraint_data(&bodies[c.body_A_id()], &bodies[c.body_B_id()], dt);
-            // constraint_data.extend(c_data);
+            for cd in c_data {
+                match cd {
+                    Cons2dData::Inequal { need_resolve: false, .. } => {}
+                    other => constraint_data.push(other),
+                }
+            }
         }
         let n_constraints = constraint_data.len();
 
         let mut j = TDynMat::<f64>::zeros(n_constraints, 3 * n_bodies);
         let mut inv_m = TDynMat::<f64>::zeros(3 * n_bodies, 3 * n_bodies);
         let mut v = TDynMat::<f64>::zeros(3 * n_bodies, 1);
+        let mut b = TDynMat::<f64>::zeros(n_constraints, 1);
 
         for i in 0..n_bodies {
             let body = &bodies[i];
@@ -421,19 +447,23 @@ impl GlobalImpulseSolver2d {
         }
 
         for (i, cons_data) in constraint_data.iter().enumerate() {
-            let local_j = cons_data.jacobian;
-            let body_A_id = cons_data.body_A_id;
-            let body_B_id = cons_data.body_B_id;
+            let (body_A_id, body_B_id, local_j, bias) = match cons_data {
+                Cons2dData::Equal { body_A_id, body_B_id, jacobian, bias, .. }
+                | Cons2dData::Inequal { body_A_id, body_B_id, jacobian, bias, .. } => {
+                    (*body_A_id, *body_B_id, *jacobian, *bias)
+                }
+            };
             *j.v_mut(i, body_A_id * 3 + 0) = local_j.v(0, 0);
             *j.v_mut(i, body_A_id * 3 + 1) = local_j.v(0, 1);
             *j.v_mut(i, body_A_id * 3 + 2) = local_j.v(0, 2);
             *j.v_mut(i, body_B_id * 3 + 0) = local_j.v(0, 3);
             *j.v_mut(i, body_B_id * 3 + 1) = local_j.v(0, 4);
             *j.v_mut(i, body_B_id * 3 + 2) = local_j.v(0, 5);
+            *b.v_mut(i, 0) = bias;
         }
 
         let k = &j * &inv_m * &j.T();
-        let b = -(&j * (&v + &dv_ext));
+        let b = -(&j * (&v + &dv_ext)) - &b;
 
         let lambda = solve_gauss_seidel_dyn(k, b, 100, 1e-6);
         let dv = &inv_m * (&j.T() * &lambda) + &dv_ext;

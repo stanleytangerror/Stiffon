@@ -177,8 +177,7 @@ impl Rbd2dSample for Prismatic2dSample {
         solver.add_prismatic_joint(
             body1, body2, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
-            mvec!(1.0, 0.4), 
-            true, Some(10.0),
+            mvec!(1.0, 0.4), 0.0,
             true, Some(100.0), Some(-3.0), 
             true, Some(-1.0), Some(1.0)
         );
@@ -264,8 +263,7 @@ impl Rbd2dSample for Barrier2dSample {
         solver.add_prismatic_joint(
             bottom, body_right, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
-            mvec!(1.0, 0.0), 
-            false, None,
+            mvec!(1.0, 0.0), 0.0,
             false, Some(100000.0), Some(30.0), 
             true, Some(-1.5), Some(1.5)
         );
@@ -273,8 +271,7 @@ impl Rbd2dSample for Barrier2dSample {
         solver.add_prismatic_joint(
             bottom, body_left, 
             mvec!(-1.5, 0.0), mvec!(-1.5, 0.0), 
-            mvec!(1.0, 0.0), 
-            false, None,
+            mvec!(1.0, 0.0), 0.0,
             false, Some(100000.0), Some(-30.0), 
             true, Some(-1.5), Some(1.5)
         );
@@ -331,8 +328,7 @@ impl Rbd2dSample for Barrier2dSample {
         solver.add_prismatic_joint(
             top, last_right, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
-            mvec!(1.0, 0.0), 
-            false, None,
+            mvec!(1.0, 0.0), 0.0,
             false, None, None, 
             true, Some(-1.5), Some(1.5)
         );
@@ -340,8 +336,7 @@ impl Rbd2dSample for Barrier2dSample {
         solver.add_prismatic_joint(
             top, last_left, 
             mvec!(-1.5, 0.0), mvec!(-1.5, 0.0), 
-            mvec!(1.0, 0.0), 
-            false, None,
+            mvec!(1.0, 0.0), 0.0,
             false, None, None, 
             true, Some(-1.5), Some(1.5)
         );
