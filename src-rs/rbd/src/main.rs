@@ -221,7 +221,7 @@ impl Rbd2dSample for Revolute2dSample {
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_gs(dt);
+        solver.step_global(dt);
     }
 }
 
@@ -352,7 +352,7 @@ impl Rbd2dSample for Barrier2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Scene2d::new();
-    let sample = Barrier2dSample {};
+    let sample = PointJoint2dSample {};
     sample.setup(&mut solver);
 
     let mut draw2d = Draw2d::new();

@@ -323,7 +323,7 @@ pub struct Scene2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
     constraints: Vec<Box<dyn GenCons2dData>>,
-    global_impulse_solver: GlobalImpulseSolver2d,
+    solver: SequentialImpulseSolver2d,
 }
 
 impl Scene2d {
@@ -332,7 +332,7 @@ impl Scene2d {
             bodies: Vec::new(),
             gravity: mvec!(0.0, -9.8),
             constraints: Vec::new(),
-            global_impulse_solver: GlobalImpulseSolver2d{},
+            solver: SequentialImpulseSolver2d::new(),
         }
     }
 
@@ -481,10 +481,12 @@ impl Scene2d {
     }
 
     pub fn step_gs(&mut self, dt: f64) {
-    //     for body in &mut self.bodies {
-    //         body.apply_gravity(self.gravity);
-    //     }
+        for body in &mut self.bodies {
+            body.apply_gravity(self.gravity);
+        }
 
+        self.solver.solve(&mut self.bodies, &self.constraints, dt);
+        
     //     for body in &mut self.bodies {
     //         body.pre_solve(dt);
     //     }
@@ -525,20 +527,20 @@ impl Scene2d {
             body.apply_gravity(self.gravity);
         }
 
-        let (delta_v, delta_𝜔) = self.global_impulse_solver.solve(&self.bodies, &self.constraints, dt);
+        self.solver.solve(&mut self.bodies, &self.constraints, dt);
         
-        for i in 0..self.bodies.len() {
-            let body = &mut self.bodies[i];
+        // for i in 0..self.bodies.len() {
+        //     let body = &mut self.bodies[i];
             
-            body.v += delta_v[i];
-            body.𝜔 += delta_𝜔[i];
+        //     body.v += delta_v[i];
+        //     body.𝜔 += delta_𝜔[i];
 
-            body.pose.origin += body.v * dt;
-            body.pose.angle += body.𝜔 * dt;
+        //     body.pose.origin += body.v * dt;
+        //     body.pose.angle += body.𝜔 * dt;
 
-            body.f_ext = Vec2::ZEROS;
-            body.τ_ext = 0.0;
-        }
+        //     body.f_ext = Vec2::ZEROS;
+        //     body.τ_ext = 0.0;
+        // }
         
     }
 }

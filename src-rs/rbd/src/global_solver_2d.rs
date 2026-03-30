@@ -402,6 +402,290 @@ impl GenCons2dData for RevoluteJoint2d {
     }
 }
 
+pub struct SequentialImpulseSolver2d {
+    pub pos_iter_count: usize,
+    pub vel_iter_count: usize,
+
+    delta_v: Vec<Vec2>,
+    delta_𝜔: Vec<f64>,
+    accum_lambda: Vec<f64>, // size of constraints
+    ext_dv: Vec<Vec2>,
+    ext_d𝜔: Vec<f64>,
+}
+
+impl SequentialImpulseSolver2d {
+    pub fn new() -> Self {
+        SequentialImpulseSolver2d { pos_iter_count: 1, vel_iter_count: 1, delta_v: vec![Vec2::ZEROS; 0], delta_𝜔: vec![0.0; 0], accum_lambda: vec![0.0; 0], ext_dv: vec![Vec2::ZEROS; 0], ext_d𝜔: vec![0.0; 0] }
+    }
+
+    pub fn pos_iteration(&mut self, bodies: &Vec<Body2d>, constraints: &Vec<Box<dyn GenCons2dData>>, dt: f64) -> (Vec<Vec2>, Vec<f64>) {
+
+        let mut constraint_data = Vec::<Cons2dData>::new();
+        for c in constraints {
+            let c_data = c.gen_cons_data(bodies, dt);
+            for cd in c_data {
+                match cd {
+                    Cons2dData::Inequal { need_resolve: false, .. } => {}
+                    other => constraint_data.push(other),
+                }
+            }
+        }
+
+        let n_constraints = constraint_data.len();
+
+        self.delta_v = vec![Vec2::ZEROS; bodies.len()];
+        self.delta_𝜔 = vec![0.0; bodies.len()];
+        self.ext_dv = vec![Vec2::ZEROS; bodies.len()];
+        self.ext_d𝜔 = vec![0.0; bodies.len()];
+        self.accum_lambda = vec![0.0; n_constraints];
+
+        for i in 0..bodies.len() {
+            self.ext_dv[i] = bodies[i].f_ext * bodies[i].inv_mass * dt;
+            self.ext_d𝜔[i] = bodies[i].τ_ext * bodies[i].inv_inertia * dt;
+        }
+
+        for _ in 0..self.pos_iter_count {
+            for (i, c) in constraint_data.iter().enumerate() {
+                match c {
+                    Cons2dData::Equal { body_A_id, body_B_id, jacobian, bias, accum_lambda, max_accum_lambda } => {
+                        let body_A = &bodies[*body_A_id];
+                        let body_B = &bodies[*body_B_id];
+
+                        let inv_m: TMat<f64, 6, 6> = d_concat!(
+                            Mat22::diag([body_A.inv_mass; 2]),
+                            body_A.inv_inertia,
+                            Mat22::diag([body_B.inv_mass; 2]),
+                            body_B.inv_inertia
+                        );
+
+                        let v = v_concat!(
+                            body_A.v,
+                            body_A.𝜔,
+                            body_B.v,
+                            body_B.𝜔
+                        );
+
+                        let mut dv = v_concat!(
+                            self.delta_v[*body_A_id],
+                            self.delta_𝜔[*body_A_id],
+                            self.delta_v[*body_B_id],
+                            self.delta_𝜔[*body_B_id]
+                        );
+
+                        let ext_dv = v_concat!(
+                            self.ext_dv[*body_A_id],
+                            self.ext_d𝜔[*body_A_id],
+                            self.ext_dv[*body_B_id],
+                            self.ext_d𝜔[*body_B_id]
+                        );
+
+                        let inv_eff_mass = 1.0 / ((*jacobian * inv_m * jacobian.T()).as_float());
+                        let rhs = -((*jacobian * (v + dv + ext_dv)).as_float()) - *bias;
+                        let lambda = inv_eff_mass * rhs;
+
+                        println!("jacobian: {:?}", jacobian);
+                        println!("inv_m: {:?}", inv_m);
+                        println!("v: {:?}", v);
+                        println!("dv: {:?}", dv);
+                        println!("ext_dv: {:?}", ext_dv);
+                        println!("bias: {}", bias);
+                        println!("inv_eff_mass: {}", inv_eff_mass);
+                        println!("rhs: {}", rhs);
+                        println!("lambda: {}", lambda);
+
+                        self.accum_lambda[i] += lambda;
+                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                    }
+                    Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, bias, accum_lambda, max_accum_lambda } => {
+                        let body_A = &bodies[*body_A_id];
+                        let body_B = &bodies[*body_B_id];
+
+                        let inv_m = d_concat!(
+                            Mat22::diag([body_A.inv_mass; 2]),
+                            body_A.inv_inertia,
+                            Mat22::diag([body_B.inv_mass; 2]),
+                            body_B.inv_inertia
+                        );
+
+                        let v = v_concat!(
+                            body_A.v,
+                            body_A.𝜔,
+                            body_B.v,
+                            body_B.𝜔
+                        );
+
+                        let mut dv = v_concat!(
+                            self.delta_v[*body_A_id],
+                            self.delta_𝜔[*body_A_id],
+                            self.delta_v[*body_B_id],
+                            self.delta_𝜔[*body_B_id]
+                        );
+
+                        let ext_dv = v_concat!(
+                            self.ext_dv[*body_A_id],
+                            self.ext_d𝜔[*body_A_id],
+                            self.ext_dv[*body_B_id],
+                            self.ext_d𝜔[*body_B_id]
+                        );
+
+                        let inv_eff_mass = 1.0 / ((*jacobian * inv_m * jacobian.T()).as_float());
+                        let rhs = -((*jacobian * (v + dv + ext_dv)).as_float()) - *bias;
+                        let lambda = inv_eff_mass * rhs;
+
+                        self.accum_lambda[i] += lambda;
+                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                    }
+                    Cons2dData::Inequal { need_resolve: false, .. } => {}
+                }
+            }
+        }
+
+        let mut v_new = vec![Vec2::ZEROS; bodies.len()];
+        let mut 𝜔_new = vec![0.0; bodies.len()];
+        for i in 0..bodies.len() {
+            v_new[i] = bodies[i].v + self.delta_v[i] + self.ext_dv[i];
+            𝜔_new[i] = bodies[i].𝜔 + self.delta_𝜔[i] + self.ext_d𝜔[i];
+        }
+
+        (v_new, 𝜔_new)
+    }
+
+    pub fn vel_iteration(&mut self, bodies: &Vec<Body2d>, constraints: &Vec<Box<dyn GenCons2dData>>, dt: f64) -> (Vec<Vec2>, Vec<f64>) {
+
+        let mut constraint_data = Vec::<Cons2dData>::new();
+        for c in constraints {
+            let c_data = c.gen_cons_data(bodies, dt);
+            for cd in c_data {
+                match cd {
+                    Cons2dData::Inequal { need_resolve: false, .. } => {}
+                    other => constraint_data.push(other),
+                }
+            }
+        }
+
+        let n_constraints = constraint_data.len();
+
+        self.delta_v = vec![Vec2::ZEROS; bodies.len()];
+        self.delta_𝜔 = vec![0.0; bodies.len()];
+        self.ext_dv = vec![Vec2::ZEROS; bodies.len()];
+        self.ext_d𝜔 = vec![0.0; bodies.len()];
+        self.accum_lambda = vec![0.0; n_constraints];
+
+        for i in 0..bodies.len() {
+            self.ext_dv[i] = bodies[i].f_ext * bodies[i].inv_mass * dt;
+            self.ext_d𝜔[i] = bodies[i].τ_ext * bodies[i].inv_inertia * dt;
+        }
+
+        for _ in 0..self.pos_iter_count {
+            for (i, c) in constraint_data.iter().enumerate() {
+                match c {
+                    Cons2dData::Equal { body_A_id, body_B_id, jacobian, bias, accum_lambda, max_accum_lambda } => {
+                        let body_A = &bodies[*body_A_id];
+                        let body_B = &bodies[*body_B_id];
+
+                        let inv_m: TMat<f64, 6, 6> = d_concat!(
+                            Mat22::diag([body_A.inv_mass; 2]),
+                            body_A.inv_inertia,
+                            Mat22::diag([body_B.inv_mass; 2]),
+                            body_B.inv_inertia
+                        );
+
+                        let v = v_concat!(
+                            body_A.v,
+                            body_A.𝜔,
+                            body_B.v,
+                            body_B.𝜔
+                        );
+
+                        let mut dv = v_concat!(
+                            self.delta_v[*body_A_id],
+                            self.delta_𝜔[*body_A_id],
+                            self.delta_v[*body_B_id],
+                            self.delta_𝜔[*body_B_id]
+                        );
+
+                        let ext_dv = v_concat!(
+                            self.ext_dv[*body_A_id],
+                            self.ext_d𝜔[*body_A_id],
+                            self.ext_dv[*body_B_id],
+                            self.ext_d𝜔[*body_B_id]
+                        );
+
+                        let inv_eff_mass = 1.0 / ((*jacobian * inv_m * jacobian.T()).as_float());
+                        let rhs = -((*jacobian * (v + dv + ext_dv)).as_float());
+                        let lambda = inv_eff_mass * rhs;
+
+                        self.accum_lambda[i] += lambda;
+                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                    }
+                    Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, bias, accum_lambda, max_accum_lambda } => {
+                        let body_A = &bodies[*body_A_id];
+                        let body_B = &bodies[*body_B_id];
+
+                        let inv_m = d_concat!(
+                            Mat22::diag([body_A.inv_mass; 2]),
+                            body_A.inv_inertia,
+                            Mat22::diag([body_B.inv_mass; 2]),
+                            body_B.inv_inertia
+                        );
+
+                        let v = v_concat!(
+                            body_A.v,
+                            body_A.𝜔,
+                            body_B.v,
+                            body_B.𝜔
+                        );
+
+                        let mut dv = v_concat!(
+                            self.delta_v[*body_A_id],
+                            self.delta_𝜔[*body_A_id],
+                            self.delta_v[*body_B_id],
+                            self.delta_𝜔[*body_B_id]
+                        );
+
+                        let ext_dv = v_concat!(
+                            self.ext_dv[*body_A_id],
+                            self.ext_d𝜔[*body_A_id],
+                            self.ext_dv[*body_B_id],
+                            self.ext_d𝜔[*body_B_id]
+                        );
+
+                        let inv_eff_mass = 1.0 / ((*jacobian * inv_m * jacobian.T()).as_float());
+                        let rhs = -((*jacobian * (v + dv + ext_dv)).as_float());
+                        let lambda = inv_eff_mass * rhs;
+
+                        self.accum_lambda[i] += lambda;
+                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                    }
+                    Cons2dData::Inequal { need_resolve: false, .. } => {}
+                }
+            }
+        }
+
+        let mut v_new = vec![Vec2::ZEROS; bodies.len()];
+        let mut 𝜔_new = vec![0.0; bodies.len()];
+        for i in 0..bodies.len() {
+            v_new[i] = bodies[i].v + self.delta_v[i] + self.ext_dv[i];
+            𝜔_new[i] = bodies[i].𝜔 + self.delta_𝜔[i] + self.ext_d𝜔[i];
+        }
+
+        (v_new, 𝜔_new)
+    }
+
+    pub fn solve(&mut self, bodies: &mut Vec<Body2d>, constraints: &Vec<Box<dyn GenCons2dData>>, dt: f64) {
+        let (v_new, 𝜔_new) = self.pos_iteration(bodies, constraints, dt);
+        for i in 0..bodies.len() {
+            bodies[i].pose.origin += v_new[i] * dt;
+            bodies[i].pose.angle += 𝜔_new[i] * dt;
+        }
+
+        let (v_new, 𝜔_new) = self.vel_iteration(bodies, constraints, dt);
+        for i in 0..bodies.len() {
+            bodies[i].v = v_new[i];
+            bodies[i].𝜔 = 𝜔_new[i];
+        }
+    }
+}
 
 pub struct GlobalImpulseSolver2d {
 }
