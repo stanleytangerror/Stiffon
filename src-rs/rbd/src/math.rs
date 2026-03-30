@@ -459,9 +459,9 @@ impl<T: FloatNum, const R: usize, const C: usize> TMat<T, R, C> {
         assert!(r + R1 <= R && c + C1 <= C, "slice out of bounds");
 
         let mut mat = TMat::<T, R1, C1>::ZEROS;
-        for i in r..(r+R1) {
-            for j in c..(c+C1) {
-                *mat.v_mut(i, j) = self.v(i, j);
+        for i in 0..R1 {
+            for j in 0..C1 {
+                *mat.v_mut(i, j) = self.v(r + i, c + j);
             }
         }
         mat

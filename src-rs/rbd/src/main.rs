@@ -352,7 +352,7 @@ impl Rbd2dSample for Barrier2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut solver = Scene2d::new();
-    let sample = PointJoint2dSample {};
+    let sample = AngularMotor2dSample {};
     sample.setup(&mut solver);
 
     let mut draw2d = Draw2d::new();

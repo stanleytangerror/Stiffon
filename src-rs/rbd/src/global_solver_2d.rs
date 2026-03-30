@@ -493,8 +493,18 @@ impl SequentialImpulseSolver2d {
                         println!("rhs: {}", rhs);
                         println!("lambda: {}", lambda);
 
-                        self.accum_lambda[i] += lambda;
-                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                        let last_accum_lambda = self.accum_lambda[i];
+                        self.accum_lambda[i] = (self.accum_lambda[i] + lambda).clamp(-*max_accum_lambda, *max_accum_lambda);
+
+                        let clamped_lambda = self.accum_lambda[i] - last_accum_lambda;
+
+                        let impulse = jacobian.T() * clamped_lambda;
+                        dv += inv_m * impulse;
+
+                        self.delta_v[*body_A_id] += dv.v_slice::<2>(0, 0);
+                        self.delta_𝜔[*body_A_id] += dv.v(2, 0);
+                        self.delta_v[*body_B_id] += dv.v_slice::<2>(3, 0);
+                        self.delta_𝜔[*body_B_id] += dv.v(5, 0);
                     }
                     Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, bias, accum_lambda, max_accum_lambda } => {
                         let body_A = &bodies[*body_A_id];
@@ -514,7 +524,7 @@ impl SequentialImpulseSolver2d {
                             body_B.𝜔
                         );
 
-                        let mut dv = v_concat!(
+                        let mut dv: TMat<f64, _, 1> = v_concat!(
                             self.delta_v[*body_A_id],
                             self.delta_𝜔[*body_A_id],
                             self.delta_v[*body_B_id],
@@ -532,8 +542,18 @@ impl SequentialImpulseSolver2d {
                         let rhs = -((*jacobian * (v + dv + ext_dv)).as_float()) - *bias;
                         let lambda = inv_eff_mass * rhs;
 
-                        self.accum_lambda[i] += lambda;
-                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                        let last_accum_lambda = self.accum_lambda[i];
+                        self.accum_lambda[i] = (self.accum_lambda[i] + lambda).clamp(-*max_accum_lambda, *max_accum_lambda);
+
+                        let clamped_lambda = self.accum_lambda[i] - last_accum_lambda;
+
+                        let impulse = jacobian.T() * clamped_lambda;
+                        dv += inv_m * impulse;
+
+                        self.delta_v[*body_A_id] += dv.v_slice::<2>(0, 0);
+                        self.delta_𝜔[*body_A_id] += dv.v(2, 0);
+                        self.delta_v[*body_B_id] += dv.v_slice::<2>(3, 0);
+                        self.delta_𝜔[*body_B_id] += dv.v(5, 0);
                     }
                     Cons2dData::Inequal { need_resolve: false, .. } => {}
                 }
@@ -615,8 +635,18 @@ impl SequentialImpulseSolver2d {
                         let rhs = -((*jacobian * (v + dv + ext_dv)).as_float());
                         let lambda = inv_eff_mass * rhs;
 
-                        self.accum_lambda[i] += lambda;
-                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                        let last_accum_lambda = self.accum_lambda[i];
+                        self.accum_lambda[i] = (self.accum_lambda[i] + lambda).clamp(-*max_accum_lambda, *max_accum_lambda);
+
+                        let clamped_lambda = self.accum_lambda[i] - last_accum_lambda;
+
+                        let impulse = jacobian.T() * clamped_lambda;
+                        dv += inv_m * impulse;
+
+                        self.delta_v[*body_A_id] += dv.v_slice::<2>(0, 0);
+                        self.delta_𝜔[*body_A_id] += dv.v(2, 0);
+                        self.delta_v[*body_B_id] += dv.v_slice::<2>(3, 0);
+                        self.delta_𝜔[*body_B_id] += dv.v(5, 0);
                     }
                     Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, bias, accum_lambda, max_accum_lambda } => {
                         let body_A = &bodies[*body_A_id];
@@ -654,8 +684,18 @@ impl SequentialImpulseSolver2d {
                         let rhs = -((*jacobian * (v + dv + ext_dv)).as_float());
                         let lambda = inv_eff_mass * rhs;
 
-                        self.accum_lambda[i] += lambda;
-                        self.accum_lambda[i] = self.accum_lambda[i].clamp(-*max_accum_lambda, *max_accum_lambda);
+                        let last_accum_lambda = self.accum_lambda[i];
+                        self.accum_lambda[i] = (self.accum_lambda[i] + lambda).clamp(-*max_accum_lambda, *max_accum_lambda);
+
+                        let clamped_lambda = self.accum_lambda[i] - last_accum_lambda;
+
+                        let impulse = jacobian.T() * clamped_lambda;
+                        dv += inv_m * impulse;
+
+                        self.delta_v[*body_A_id] += dv.v_slice::<2>(0, 0);
+                        self.delta_𝜔[*body_A_id] += dv.v(2, 0);
+                        self.delta_v[*body_B_id] += dv.v_slice::<2>(3, 0);
+                        self.delta_𝜔[*body_B_id] += dv.v(5, 0);
                     }
                     Cons2dData::Inequal { need_resolve: false, .. } => {}
                 }
