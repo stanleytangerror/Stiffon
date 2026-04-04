@@ -7,7 +7,7 @@
 mod math;
 mod rbd2d;
 mod draw2d;
-mod global_solver_2d;
+mod solver2d;
 
 use std::f64::INFINITY;
 

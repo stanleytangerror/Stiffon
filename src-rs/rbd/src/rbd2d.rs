@@ -12,7 +12,7 @@ use crate::h_concat;
 use crate::v_concat;
 #[macro_use]
 use crate::d_concat;
-use crate::global_solver_2d::*;
+use crate::solver2d::*;
 
 // --- Geometry ---
 #[derive(Clone, Debug)]
