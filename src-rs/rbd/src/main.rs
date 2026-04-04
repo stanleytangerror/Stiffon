@@ -48,7 +48,7 @@ impl Rbd2dSample for PointJoint2dSample {
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_gs(dt);
+        solver.step(dt);
     }
 }
 
@@ -80,7 +80,7 @@ impl Rbd2dSample for AngularJoint2dSample {
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_gs(dt);
+        solver.step(dt);
     }
 }
 
@@ -109,11 +109,11 @@ impl Rbd2dSample for AngularMotor2dSample {
         ));
     
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
-        let cons2 = solver.add_angular_motor(body1, body2, 100.0,  180.0);
+        let cons2 = solver.add_angular_motor(body1, body2, 100.0,  -180.0);
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_gs(dt);
+        solver.step(dt);
     }
 }
 
@@ -142,11 +142,11 @@ impl Rbd2dSample for AngularLimit2dSample {
     
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
         let cons2 = solver.add_angular_motor(body1, body2, 1000.0, 100.0);
-        let cons2 = solver.add_angular_limit(body1, body2, -60.0, 30.0);
+        let cons2 = solver.add_angular_limit(body1, body2, -40.0, 60.0);
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_gs(dt);
+        solver.step(dt);
     }
 }
 
@@ -184,7 +184,7 @@ impl Rbd2dSample for Prismatic2dSample {
     }
 
     fn step(&self, scene: &mut Scene2d, dt: f64) {
-        scene.step_gs(dt);
+        scene.step(dt);
     }
 }
 
@@ -221,7 +221,7 @@ impl Rbd2dSample for Revolute2dSample {
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_global(dt);
+        solver.step(dt);
     }
 }
 
@@ -344,7 +344,7 @@ impl Rbd2dSample for Barrier2dSample {
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_global(dt);
+        solver.step(dt);
     }
 }
 
@@ -352,7 +352,7 @@ impl Rbd2dSample for Barrier2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut scene = Scene2d::new();
-    let sample = Revolute2dSample {};
+    let sample = Barrier2dSample {};
     sample.setup(&mut scene);
 
     let mut draw2d = Draw2d::new();

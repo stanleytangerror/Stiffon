@@ -451,7 +451,7 @@ impl Scene2d {
     pub fn add_revolute_joint(&mut self, 
         body_A_id: usize, body_B_id: usize, 
         pos_world_A: Vec2, pos_world_B: Vec2, 
-        has_motor: bool, torque_max: Option<f64>, 𝜔: Option<f64>,
+        has_motor: bool, torque_max: Option<f64>, 𝜔_degrees: Option<f64>,
         has_limit: bool, limit_min: Option<f64>, limit_max: Option<f64>,
     ) -> usize {
         let index = self.constraints.len();
@@ -475,7 +475,7 @@ impl Scene2d {
         //     self.constraints.push(Box::new(InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: limit_max.unwrap().to_radians() }])));
         // }
 
-        let mut constraint = RevoluteJoint2d::new(&self.bodies, body_A_id, body_B_id, pos_world_A, pos_world_B, has_motor, torque_max, 𝜔, has_limit, limit_min, limit_max);
+        let mut constraint = RevoluteJoint2d::new(&self.bodies, body_A_id, body_B_id, pos_world_A, pos_world_B, has_motor, torque_max, 𝜔_degrees, has_limit, limit_min, limit_max);
         self.constraints.push(Box::new(constraint));
 
         index
@@ -502,7 +502,7 @@ impl Scene2d {
         &self.bodies
     }
 
-    pub fn step_gs(&mut self, dt: f64) {
+    pub fn step(&mut self, dt: f64) {
         for body in &mut self.bodies {
             body.apply_gravity(self.gravity);
         }
@@ -553,27 +553,27 @@ impl Scene2d {
     //     }
     }
 
-    pub fn step_global(&mut self, dt: f64) {
-        for body in &mut self.bodies {
-            body.apply_gravity(self.gravity);
-        }
+    // pub fn step_global(&mut self, dt: f64) {
+    //     for body in &mut self.bodies {
+    //         body.apply_gravity(self.gravity);
+    //     }
 
-        self.solver.solve(&mut self.bodies, &self.constraints, dt);
+    //     self.solver.solve(&mut self.bodies, &self.constraints, dt);
         
-        // for i in 0..self.bodies.len() {
-        //     let body = &mut self.bodies[i];
+    //     // for i in 0..self.bodies.len() {
+    //     //     let body = &mut self.bodies[i];
             
-        //     body.v += delta_v[i];
-        //     body.𝜔 += delta_𝜔[i];
+    //     //     body.v += delta_v[i];
+    //     //     body.𝜔 += delta_𝜔[i];
 
-        //     body.pose.origin += body.v * dt;
-        //     body.pose.angle += body.𝜔 * dt;
+    //     //     body.pose.origin += body.v * dt;
+    //     //     body.pose.angle += body.𝜔 * dt;
 
-        //     body.f_ext = Vec2::ZEROS;
-        //     body.τ_ext = 0.0;
-        // }
+    //     //     body.f_ext = Vec2::ZEROS;
+    //     //     body.τ_ext = 0.0;
+    //     // }
         
-    }
+    // }
 }
 
 pub trait Constraint {}

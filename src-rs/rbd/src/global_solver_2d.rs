@@ -92,7 +92,7 @@ fn gen_cons_data_pos1d_lock(body_A_id: usize, body_B_id: usize, body_A: &Body2d,
     }
 }
 
-fn gen_cons_data_pos1d_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, n: Vec2, p_A: Vec2, p_B: Vec2, disp_A_miuns_B: f64, force_max: f64, v: f64, dt: f64) -> Cons2dData {
+fn gen_cons_data_pos1d_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, n: Vec2, p_A: Vec2, p_B: Vec2, disp_A_miuns_B: f64, force_max: f64, dt: f64) -> Cons2dData {
 
     let r_A = p_A - body_A.pose.origin;
     let r_B = p_B - body_B.pose.origin;
@@ -106,7 +106,7 @@ fn gen_cons_data_pos1d_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d
         -r_B.cross(n)
     );
 
-    let c_init = (n.T() * (p_A - p_B)).as_float() - disp_A_miuns_B - v * dt;
+    let c_init = (n.T() * (p_A - p_B)).as_float() - disp_A_miuns_B;
 
     let erp = 1.0;
     let bias = c_init * (erp / dt);
@@ -142,10 +142,6 @@ fn gen_cons_data_pos1d_limit_min(body_A_id: usize, body_B_id: usize, body_A: &Bo
     let max_accum_lambda = f64::INFINITY;
     let need_resolve = c_init < 0.0;
 
-    if need_resolve {
-        println!("need_resolve: {}", c_init);
-    }
-
     Cons2dData::Inequal {
         body_A_id: body_A_id,
         body_B_id: body_B_id,
@@ -178,10 +174,6 @@ fn gen_cons_data_pos1d_limit_max(body_A_id: usize, body_B_id: usize, body_A: &Bo
     let bias = c_init * (erp / dt);
     let max_accum_lambda = f64::INFINITY;
     let need_resolve = c_init < 0.0;
-
-    if need_resolve {
-        println!("need_resolve: {}", c_init);
-    }
 
     Cons2dData::Inequal {
         body_A_id: body_A_id,
@@ -222,9 +214,9 @@ fn gen_cons_data_ang_lock(body_A_id: usize, body_B_id: usize, body_A: &Body2d, b
     }
 }
 
-fn gen_cons_data_ang_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, angle_A_minus_B: f64, torque_max: f64, 𝜔: f64, dt: f64) -> Cons2dData {
+fn gen_cons_data_ang_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, body_B: &Body2d, angle_A_minus_B: f64, torque_max: f64, dt: f64) -> Cons2dData {
 
-    // C = (o_A - o_B) - angle_diff - 𝜔*dt = 0
+    // C = (o_A - o_B) - angle_diff = 0. angle_diff is already advanced by 𝜔*dt in ConstraintBasic::step before solve.
     // J = [ 0, 1, 0, -1 ] in R^1x6
     let jacobian = h_concat!(
         Vec2::ZEROS.T(), 
@@ -233,7 +225,7 @@ fn gen_cons_data_ang_motor(body_A_id: usize, body_B_id: usize, body_A: &Body2d, 
         -1.0
     );
 
-    let c_init = body_A.pose.angle - body_B.pose.angle - angle_A_minus_B - 𝜔*dt;
+    let c_init = body_A.pose.angle - body_B.pose.angle - angle_A_minus_B;
     let erp = 1.0;
     let bias = c_init * (erp / dt);
     let max_accum_lambda = torque_max * dt; 
@@ -350,7 +342,7 @@ impl ConstraintBasic for AngularMotor2d {
         let body_A = &bodies[self.body_A_id];
         let body_B = &bodies[self.body_B_id];
 
-        vec![gen_cons_data_ang_motor(self.body_A_id, self.body_B_id, body_A, body_B, self.angle_A_minus_B, self.torque_max, self.𝜔, dt)]
+        vec![gen_cons_data_ang_motor(self.body_A_id, self.body_B_id, body_A, body_B, self.angle_A_minus_B, self.torque_max, dt)]
     }
 
     fn step(&mut self, dt: f64) {
@@ -387,7 +379,7 @@ impl ConstraintBasic for PrismaticJoint2d {
         result.push(gen_cons_data_ang_lock(self.body_A_id, self.body_B_id, body_A, body_B, self.local_angle_A - self.local_angle_B, dt));
 
         if self.has_motor {
-            result.push(gen_cons_data_pos1d_motor(self.body_A_id, self.body_B_id, body_A, body_B, axis_A, p_A, p_B, self.disp_A_minus_B, self.force_max.unwrap(), self.v.unwrap(), dt));
+            result.push(gen_cons_data_pos1d_motor(self.body_A_id, self.body_B_id, body_A, body_B, axis_A, p_A, p_B, self.disp_A_minus_B, self.force_max.unwrap(), dt));
         }
 
         if self.has_limit {
@@ -421,7 +413,7 @@ impl ConstraintBasic for RevoluteJoint2d {
         result.push(gen_cons_data_pos1d_lock(self.body_A_id, self.body_B_id, body_A, body_B, dir_B, p_A, p_B, dt));
 
         if self.has_motor {
-            result.push(gen_cons_data_ang_motor(self.body_A_id, self.body_B_id, body_A, body_B, self.angle_A_minus_B, self.torque_max.unwrap(), self.𝜔.unwrap(), dt));
+            result.push(gen_cons_data_ang_motor(self.body_A_id, self.body_B_id, body_A, body_B, self.angle_A_minus_B, self.torque_max.unwrap(), dt));
         }
 
         if self.has_limit {
