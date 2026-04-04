@@ -476,7 +476,9 @@ impl SequentialImpulseSolver2d {
         for _ in 0..self.pos_iter_count {
             for (i, c) in constraint_data.iter().enumerate() {
                 match c {
-                    Cons2dData::Equal { body_A_id, body_B_id, jacobian, pos_bias, max_accum_lambda, .. } => {
+                    Cons2dData::Equal { body_A_id, body_B_id, jacobian, pos_bias, max_accum_lambda, .. } |
+                    Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, pos_bias, max_accum_lambda, .. }
+                    => {
                         let body_A = &bodies[*body_A_id];
                         let body_B = &bodies[*body_B_id];
 
@@ -525,56 +527,7 @@ impl SequentialImpulseSolver2d {
                         self.delta_v[*body_B_id] += d_v.v_slice::<2>(3, 0);
                         self.delta_𝜔[*body_B_id] += d_v.v(5, 0);
                     }
-                    Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, pos_bias, vel_bias, max_accum_lambda, .. } => {
-                        let body_A = &bodies[*body_A_id];
-                        let body_B = &bodies[*body_B_id];
-
-                        let inv_m = d_concat!(
-                            Mat22::diag([body_A.inv_mass; 2]),
-                            body_A.inv_inertia,
-                            Mat22::diag([body_B.inv_mass; 2]),
-                            body_B.inv_inertia
-                        );
-
-                        let v = v_concat!(
-                            body_A.v,
-                            body_A.𝜔,
-                            body_B.v,
-                            body_B.𝜔
-                        );
-
-                        let dv = v_concat!(
-                            self.delta_v[*body_A_id],
-                            self.delta_𝜔[*body_A_id],
-                            self.delta_v[*body_B_id],
-                            self.delta_𝜔[*body_B_id]
-                        );
-
-                        let ext_dv = v_concat!(
-                            self.ext_dv[*body_A_id],
-                            self.ext_d𝜔[*body_A_id],
-                            self.ext_dv[*body_B_id],
-                            self.ext_d𝜔[*body_B_id]
-                        );
-
-                        let inv_eff_mass = 1.0 / ((*jacobian * inv_m * jacobian.T()).as_float());
-                        let rhs = -((*jacobian * (v + dv + ext_dv)).as_float()) - *pos_bias;
-                        let lambda = inv_eff_mass * rhs;
-
-                        let last_accum_lambda = self.accum_lambda[i];
-                        self.accum_lambda[i] = (self.accum_lambda[i] + lambda).clamp(-*max_accum_lambda, *max_accum_lambda);
-
-                        let clamped_lambda = self.accum_lambda[i] - last_accum_lambda;
-
-                        let impulse = jacobian.T() * clamped_lambda;
-                        let d_v = inv_m * impulse;
-
-                        self.delta_v[*body_A_id] += d_v.v_slice::<2>(0, 0);
-                        self.delta_𝜔[*body_A_id] += d_v.v(2, 0);
-                        self.delta_v[*body_B_id] += d_v.v_slice::<2>(3, 0);
-                        self.delta_𝜔[*body_B_id] += d_v.v(5, 0);
-                    }
-                    Cons2dData::Inequal { need_resolve: false, .. } => {}
+                    _ => {}
                 }
             }
         }
@@ -618,56 +571,9 @@ impl SequentialImpulseSolver2d {
         for _ in 0..self.vel_iter_count {
             for (i, c) in constraint_data.iter().enumerate() {
                 match c {
-                    Cons2dData::Equal { body_A_id, body_B_id, jacobian, vel_bias, max_accum_lambda, .. } => {
-                        let body_A = &bodies[*body_A_id];
-                        let body_B = &bodies[*body_B_id];
-
-                        let inv_m: TMat<f64, 6, 6> = d_concat!(
-                            Mat22::diag([body_A.inv_mass; 2]),
-                            body_A.inv_inertia,
-                            Mat22::diag([body_B.inv_mass; 2]),
-                            body_B.inv_inertia
-                        );
-
-                        let v = v_concat!(
-                            body_A.v,
-                            body_A.𝜔,
-                            body_B.v,
-                            body_B.𝜔
-                        );
-
-                        let dv = v_concat!(
-                            self.delta_v[*body_A_id],
-                            self.delta_𝜔[*body_A_id],
-                            self.delta_v[*body_B_id],
-                            self.delta_𝜔[*body_B_id]
-                        );
-
-                        let ext_dv = v_concat!(
-                            self.ext_dv[*body_A_id],
-                            self.ext_d𝜔[*body_A_id],
-                            self.ext_dv[*body_B_id],
-                            self.ext_d𝜔[*body_B_id]
-                        );
-
-                        let inv_eff_mass = 1.0 / ((*jacobian * inv_m * jacobian.T()).as_float());
-                        let rhs = -((*jacobian * (v + dv + ext_dv)).as_float()) - *vel_bias;
-                        let lambda = inv_eff_mass * rhs;
-
-                        let last_accum_lambda = self.accum_lambda[i];
-                        self.accum_lambda[i] = (self.accum_lambda[i] + lambda).clamp(-*max_accum_lambda, *max_accum_lambda);
-                        
-                        let clamped_lambda = self.accum_lambda[i] - last_accum_lambda;
-
-                        let impulse = jacobian.T() * clamped_lambda;
-                        let d_v = inv_m * impulse;
-
-                        self.delta_v[*body_A_id] += d_v.v_slice::<2>(0, 0);
-                        self.delta_𝜔[*body_A_id] += d_v.v(2, 0);
-                        self.delta_v[*body_B_id] += d_v.v_slice::<2>(3, 0);
-                        self.delta_𝜔[*body_B_id] += d_v.v(5, 0);
-                    }
-                    Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, vel_bias, max_accum_lambda, .. } => {
+                    Cons2dData::Equal { body_A_id, body_B_id, jacobian, vel_bias, max_accum_lambda, .. } |
+                    Cons2dData::Inequal { need_resolve: true, body_A_id, body_B_id, jacobian, vel_bias, max_accum_lambda, .. } 
+                    => {
                         let body_A = &bodies[*body_A_id];
                         let body_B = &bodies[*body_B_id];
 
