@@ -109,7 +109,7 @@ impl Rbd2dSample for AngularMotor2dSample {
         ));
     
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
-        let cons2 = solver.add_angular_motor(body1, body2, 500.0,  -100.0);
+        let cons2 = solver.add_angular_motor(body1, body2, 100.0,  180.0);
     }
 
     fn step(&self, solver: &mut Scene2d, dt: f64) {
@@ -178,13 +178,13 @@ impl Rbd2dSample for Prismatic2dSample {
             body1, body2, 
             mvec!(1.5, 0.0), mvec!(1.5, 0.0), 
             mvec!(1.0, 0.4), 0.0,
-            true, Some(100.0), Some(-3.0), 
+            true, Some(100.0), Some(-30.0), 
             true, Some(-1.0), Some(1.0)
         );
     }
 
-    fn step(&self, solver: &mut Scene2d, dt: f64) {
-        solver.step_gs(dt);
+    fn step(&self, scene: &mut Scene2d, dt: f64) {
+        scene.step_gs(dt);
     }
 }
 
@@ -351,17 +351,17 @@ impl Rbd2dSample for Barrier2dSample {
 
 #[macroquad::main("rbd2d")]
 async fn main() {
-    let mut solver = Scene2d::new();
-    let sample = AngularMotor2dSample {};
-    sample.setup(&mut solver);
+    let mut scene = Scene2d::new();
+    let sample = Revolute2dSample {};
+    sample.setup(&mut scene);
 
     let mut draw2d = Draw2d::new();
     draw2d.set_camera_width(50.0);
 
     loop {
-        sample.step(&mut solver, 0.01);
+        sample.step(&mut scene, 0.01);
     
-        draw2d.draw(&solver);
+        draw2d.draw(&scene);
 
         mq::next_frame().await;
     }

@@ -216,6 +216,26 @@ impl AngularMotor2d {
     }
 }
 
+pub struct AngularLimit2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub angle_min: f64,
+    pub angle_max: f64,
+}
+
+impl Constraint for AngularLimit2d {}
+
+impl AngularLimit2d {
+    pub fn new(bodies: &Vec<Body2d>, body_A_id: usize, body_B_id: usize, angle_min_degrees: f64, angle_max_degrees: f64) -> Self {
+        AngularLimit2d {
+            body_A_id,
+            body_B_id,
+            angle_min: angle_min_degrees.to_radians(),
+            angle_max: angle_max_degrees.to_radians(),
+        }
+    }
+}
+
 pub struct PrismaticJoint2d {
     pub body_A_id: usize,
     pub body_B_id: usize,
@@ -322,7 +342,7 @@ impl RevoluteJoint2d {
 pub struct Scene2d {
     pub bodies: Vec<Body2d>,
     gravity: Vec2,
-    constraints: Vec<Box<dyn GenCons2dData>>,
+    constraints: Vec<Box<dyn ConstraintBasic>>,
     solver: SequentialImpulseSolver2d,
 }
 
@@ -472,7 +492,9 @@ impl Scene2d {
         // let mut constraint2 = InequalConstraints::new(body_A_id, body_B_id, local_frame_body_A, local_frame_body_B, [AngleMaxConsFunc{ angle_max: angle_max.to_radians() }]);
         // self.constraints.push(Box::new(constraint1));
         // self.constraints.push(Box::new(constraint2));
-                
+        let mut constraint = AngularLimit2d::new(&self.bodies, body_A_id, body_B_id, angle_min, angle_max);
+        self.constraints.push(Box::new(constraint));
+
         index
     }
 
@@ -485,7 +507,16 @@ impl Scene2d {
             body.apply_gravity(self.gravity);
         }
 
+        for constraint in &mut self.constraints {
+            constraint.step(dt);
+        }
+
         self.solver.solve(&mut self.bodies, &self.constraints, dt);
+
+        for body in &mut self.bodies {
+            body.f_ext = Vec2::ZEROS;
+            body.τ_ext = 0.0;
+        }
         
     //     for body in &mut self.bodies {
     //         body.pre_solve(dt);
