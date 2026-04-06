@@ -13,22 +13,7 @@ use crate::v_concat;
 #[macro_use]
 use crate::d_concat;
 use crate::solver2d::*;
-
-// --- Geometry ---
-#[derive(Clone, Debug)]
-pub enum Geometry2d {
-    Rectangle { half_extents: Vec2 },
-    Circle { radius: f64 },
-}
-
-impl Geometry2d {
-    pub fn rectangle(half_extents: Vec2) -> Self {
-        Geometry2d::Rectangle { half_extents }
-    }
-    pub fn circle(radius: f64) -> Self {
-        Geometry2d::Circle { radius }
-    }
-}
+use crate::geo2d::*;
 
 // --- Body2d ---
 pub struct Body2d {

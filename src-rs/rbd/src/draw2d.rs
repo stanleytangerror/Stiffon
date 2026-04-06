@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use crate::math::*;
+use crate::geo2d::*;
 use crate::rbd2d::*;
 use crate::mvec;
 use macroquad::prelude as mq;

@@ -5,6 +5,7 @@
 #[allow(incomplete_features)]
 
 mod math;
+mod geo2d;
 mod rbd2d;
 mod draw2d;
 mod solver2d;
@@ -12,6 +13,7 @@ mod solver2d;
 use std::f64::INFINITY;
 
 use crate::math::*;
+use crate::geo2d::*;
 use crate::rbd2d::*;
 use crate::draw2d::Draw2d;
 use macroquad::prelude as mq;
