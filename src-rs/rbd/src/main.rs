@@ -1,3 +1,4 @@
+#![feature(yield_expr)]
 #![allow(uncommon_codepoints)]
 #![allow(mixed_script_confusables)]
 #![allow(unused)]
