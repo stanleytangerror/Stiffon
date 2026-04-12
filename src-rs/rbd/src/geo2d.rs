@@ -176,14 +176,6 @@ impl PartialConvex2d {
     fn right_side_of(from: usize, to: usize) -> Self {
         Self::RightSide { from, to }
     }
-
-    fn min_bound(&self) -> usize {
-        match self {
-            Self::Full => 0,
-            Self::LeftSide { from, .. } => *from,
-            Self::RightSide { from, .. } => *from,
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -345,6 +337,46 @@ fn convex_epa(convex_a: &Convex2d, convex_b: &Convex2d, tri: &MinDiffTriangle) -
     panic!("should not reach here");
 }
 
+struct Convex2dContact {
+    p_a: Vec2,
+    p_b: Vec2,
+    sp_vec: Vec2,
+    index_p0_a: usize,
+    index_p1_a: usize,    
+    index_p0_b: usize,
+    index_p1_b: usize,
+    t: f64,
+}
+
+fn get_convex_contact_from_minkowski_diff_edge(convex_a: &Convex2d, convex_b: &Convex2d, edge: &MinDiffEdgeAndDist) -> Convex2dContact {
+    let d = (-edge.p0.pos).dot(edge.p1.pos - edge.p0.pos);
+    let edge_len = (edge.p1.pos - edge.p0.pos).norm();
+
+    if edge_len < EPS {
+        panic!("edge is too short");
+    }
+    if d < -EPS || d > edge_len + EPS {
+        panic!("origin is not projected onto the edge");
+    }
+
+    let t = d / edge_len;
+
+    let p_a = convex_a.point(edge.p0.index_a) * (1.0 - t) + convex_a.point(edge.p1.index_a) * t;
+    let p_b = convex_b.point(edge.p0.index_b) * (1.0 - t) + convex_b.point(edge.p1.index_b) * t;
+    let sp_vec = p_a - p_b;
+
+    Convex2dContact {
+        p_a: p_a,
+        p_b: p_b,
+        sp_vec: sp_vec,
+        index_p0_a: edge.p0.index_a,
+        index_p1_a: edge.p1.index_a,
+        index_p0_b: edge.p0.index_b,
+        index_p1_b: edge.p1.index_b,
+        t: t,
+    }
+}
+
 
 fn convex_gjk_expand_triangle_to_the_left(convex_a: &Convex2d, convex_b: &Convex2d, sp0: MinDiffPoint, sp1: MinDiffPoint) -> Option<MinDiffTriangle> {
 
@@ -419,6 +451,19 @@ fn almost_to_the_left_of_ray(p: Vec2, v0: Vec2, v1: Vec2, eps: f64) -> bool {
     (v1 - v0).cross(p - v0) > -eps
 }
 
+
+fn contact_convex_convex(convex_a: &Convex2d, convex_b: &Convex2d) -> Option<Convex2dContact> {
+    let tri = convex_gjk(convex_a, convex_b);
+    if tri.is_none() {
+        return None;
+    }
+
+    let edge_and_dist = convex_epa(convex_a, convex_b, &tri.unwrap());
+
+    let contact = get_convex_contact_from_minkowski_diff_edge(convex_a, convex_b, &edge_and_dist);
+
+    Some(contact)
+}
 
 #[cfg(test)]
 mod convex_gjk_tests {
