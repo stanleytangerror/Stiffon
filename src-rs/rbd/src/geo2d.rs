@@ -64,7 +64,7 @@ impl Convex2d {
             let pre = ccw_points[(i + ccw_points.len() - 1) % ccw_points.len()];
             let cur = ccw_points[i];
             let next = ccw_points[(i + 1) % ccw_points.len()];
-            if almost_same_line(pre, cur, next, EPS) {
+            if almost_same_line(pre, cur, next, EPS) || !to_the_left_of_ray(next, pre, cur) {
                 panic!("Convex2d is not convex");
             }
         }
@@ -231,7 +231,7 @@ fn convex_gjk(convex_a: &Convex2d, convex_b: &Convex2d) -> Option<MinDiffTriangl
 
     println!("sp0: {}, sp1: {}", sp0, sp1);
 
-    let to_the_left = (sp1.pos - sp0.pos).cross(-sp0.pos) > 0.0;
+    let to_the_left = to_the_left_of_ray(Vec2::ZEROS, sp0.pos, sp1.pos);
     if to_the_left {
         return convex_gjk_expand_triangle_to_the_left(convex_a, convex_b, sp0, sp1);
     } else {
@@ -353,11 +353,11 @@ fn convex_gjk_expand_triangle_to_the_left(convex_a: &Convex2d, convex_b: &Convex
         return None;
     }
 
-    if (sp2.pos - sp1.pos).cross(-sp1.pos) < 0.0 {
+    if !to_the_left_of_ray(Vec2::ZEROS, sp1.pos, sp2.pos) {
         // origin is outside of edge sp1-sp2
         // i.e., to the right of ray sp1->sp2
         return convex_gjk_expand_triangle_to_the_left(convex_a, convex_b, sp2, sp1);
-    } else if (sp0.pos - sp2.pos).cross(-sp2.pos) < 0.0 {
+    } else if !to_the_left_of_ray(Vec2::ZEROS, sp2.pos, sp0.pos) {
         // origin is outside of edge sp2-sp0
         // i.e., to the right of ray sp2->sp0
         return convex_gjk_expand_triangle_to_the_left(convex_a, convex_b, sp0, sp2);
@@ -392,6 +392,15 @@ fn almost_same_line(p0: Vec2, p1: Vec2, p2: Vec2, eps: f64) -> bool {
     (p1 - p0).normalize().cross((p2 - p0).normalize()).abs() < eps
 }
 
+fn to_the_left_of_ray(p: Vec2, v0: Vec2, v1: Vec2) -> bool {
+    almost_to_the_left_of_ray(p, v0, v1, 0.0)
+}
+
+fn almost_to_the_left_of_ray(p: Vec2, v0: Vec2, v1: Vec2, eps: f64) -> bool {
+    (v1 - v0).cross(p - v0) > -eps
+}
+
+
 #[cfg(test)]
 mod convex_gjk_tests {
     use super::*;
@@ -418,25 +427,11 @@ mod convex_gjk_tests {
         let sp0 = pos_of_minkowski_diff(convex_a, convex_b, tri[0].index_a, tri[0].index_b);
         let sp1 = pos_of_minkowski_diff(convex_a, convex_b, tri[1].index_a, tri[1].index_b);
         let sp2 = pos_of_minkowski_diff(convex_a, convex_b, tri[2].index_a, tri[2].index_b);
-        assert!((sp1 - sp0).cross(sp2 - sp1) > 0.0);
-        assert!((sp2 - sp1).cross(sp0 - sp2) > 0.0);
-        assert!((sp0 - sp2).cross(sp1 - sp0) > 0.0);
+        assert!(almost_to_the_left_of_ray(Vec2::ZEROS, sp0, sp1, EPS));
+        assert!(almost_to_the_left_of_ray(Vec2::ZEROS, sp1, sp2, EPS));
+        assert!(almost_to_the_left_of_ray(Vec2::ZEROS, sp2, sp0, EPS));
     }
-
-    fn assert_support_points_consistent(convex_a: &Convex2d, convex_b: &Convex2d, tri: &[MinDiffPoint; 3]) {
-        for p in tri {
-            assert!(p.index_a < convex_a.len());
-            assert!(p.index_b < convex_b.len());
-            let diff = convex_a.point(p.index_a) - convex_b.point(p.index_b);
-            assert!(
-                (diff - p.pos).norm() < 1e-9,
-                "Minkowski point mismatch: {:?} vs {:?}",
-                diff,
-                p.pos
-            );
-        }
-    }
-
+    
     #[test]
     fn convex_gjk_identical_squares_returns_triangle() {
         let a = unit_square_ccw();
