@@ -142,6 +142,15 @@ impl Draw2d {
                 let radius_screen = (up - center).norm();
                 mq::draw_circle_lines(center.x() as f32, center.y() as f32, radius_screen as f32, 1.0, mq::WHITE);
             }
+            Geometry2d::Convex { shape } => {
+                let n_points = shape.n_points();
+                let mut p0 = self.camera.world_to_screen(pose.transform_position(shape.point(n_points - 1)));
+                for i in 0..shape.n_points() {
+                    let p1 = self.camera.world_to_screen(pose.transform_position(shape.point(i)));
+                    mq::draw_line(p0.x() as f32, p0.y() as f32, p1.x() as f32, p1.y() as f32, 1.0, mq::WHITE);
+                    p0 = p1;
+                }
+            }
         }
     }
 }

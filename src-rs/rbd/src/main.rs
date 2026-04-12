@@ -44,7 +44,7 @@ impl Rbd2dSample for PointJoint2dSample {
             Vec2::ZEROS,
             0.0,
             Transform2d::new(mvec!(3.0, 0.0), 0.0),
-            Geometry2d::rectangle(mvec!(1.5, 0.2)),
+            Geometry2d::convex(&[mvec!(1.7, 0.0), mvec!(-1.7, 0.0), mvec!(1.5, 0.2), mvec!(1.5, -0.2), mvec!(-1.5, -0.2), mvec!(-1.5, 0.2)]),
         ));
     
         let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
@@ -355,7 +355,7 @@ impl Rbd2dSample for Barrier2dSample {
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut scene = Scene2d::new();
-    let sample = Barrier2dSample {};
+    let sample = PointJoint2dSample {};
     sample.setup(&mut scene);
 
     let mut draw2d = Draw2d::new();

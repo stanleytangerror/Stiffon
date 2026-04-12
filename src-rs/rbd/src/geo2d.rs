@@ -19,6 +19,7 @@ const EPS: f64 = 1e-12;
 pub enum Geometry2d {
     Rectangle { half_extents: Vec2 },
     Circle { radius: f64 },
+    Convex { shape: Convex2d },
 }
 
 impl Geometry2d {
@@ -28,9 +29,13 @@ impl Geometry2d {
     pub fn circle(radius: f64) -> Self {
         Geometry2d::Circle { radius }
     }
+    pub fn convex(points: &[Vec2]) -> Self {
+        Geometry2d::Convex { shape: Convex2d::build(points) }
+    }
 }
 
-struct Convex2d {
+#[derive(Clone, Debug)]
+pub struct Convex2d {
     ccw_points: Vec<Vec2>,
 }
 
@@ -48,16 +53,30 @@ impl Convex2d {
             }
         }
 
-        let pivot = points[0];
-        let mut remaining_idx: Vec<usize> = (1..points.len()).collect();
+        // get the most -x point as the pivot
+        let pivot_idx = points
+            .iter().enumerate()
+            .min_by(|(i, p), (j, q)| p.x().total_cmp(&q.x()))
+            .unwrap().0;
+        let pivot = points[pivot_idx];
+        let remaining = points
+            .iter().enumerate()
+            .filter(|(i, _)| *i != pivot_idx)
+            .map(|(i, p)| *p)
+            .collect::<Vec<Vec2>>();
+
+        // sort by sin(theta) from +x to pivot->point direction
+        // sin(theta) is incremental from -pi/2 to pi/2, so pivot should be the most -x point
+        let mut remaining_idx: Vec<usize> = (0..remaining.len()).collect();
         let dirs = remaining_idx
             .iter()
-            .map(|&i| Vec2::unit_x().cross((points[i] - pivot).normalize())) // sort by sin(angle)
+            .map(|&i| Vec2::unit_x().cross((remaining[i] - pivot).normalize())) // sort by sin(angle)
             .collect::<Vec<f64>>();
 
-        remaining_idx.sort_by(|&i, &j| { dirs[i-1].total_cmp(&dirs[j-1]) });
+        remaining_idx.sort_by(|&i, &j| { dirs[i].total_cmp(&dirs[j]) });
 
-        let mut ccw_points = remaining_idx.iter().map(|&i| points[i]).collect::<Vec<Vec2>>();
+        // create ccw order points
+        let mut ccw_points = remaining_idx.iter().map(|&i| remaining[i]).collect::<Vec<Vec2>>();
         ccw_points.insert(0, pivot);
 
         for i in 0..ccw_points.len() {
@@ -74,12 +93,12 @@ impl Convex2d {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn n_points(&self) -> usize {
         self.ccw_points.len()
     }
 
-    fn point(&self, index: usize) -> Vec2 {
-        self.ccw_points[(index % self.len() + self.len()) % self.len()]
+    pub fn point(&self, index: usize) -> Vec2 {
+        self.ccw_points[(index % self.n_points() + self.n_points()) % self.n_points()]
     }
 
     fn max_support_point_idx(&self, axis: Vec2, partial: &PartialConvex2d) -> usize {
@@ -91,7 +110,7 @@ impl Convex2d {
             let dot = point.dot(axis);
             if dot > max_dot {
                 max_dot = dot;
-                max_index = i % self.len();
+                max_index = i % self.n_points();
                 found = true;
             }
         });
@@ -102,7 +121,7 @@ impl Convex2d {
     fn for_each_point(&self, partial: &PartialConvex2d, f: &mut dyn FnMut(usize, Vec2)) {
         match partial {
             PartialConvex2d::Full => {
-                for i in 0..self.len() {
+                for i in 0..self.n_points() {
                     f(i, self.point(i));
                 }
             }
@@ -110,7 +129,7 @@ impl Convex2d {
                 let mut i = *from;
                 f(i, self.point(i));
                 loop {
-                    i = (i + self.len() - 1) % self.len();
+                    i = (i + self.n_points() - 1) % self.n_points();
                     f(i, self.point(i));
                     if i == *to {
                         break;
@@ -121,7 +140,7 @@ impl Convex2d {
                 let mut i = *from;
                 f(i, self.point(i));
                 loop {
-                    i = (i + 1) % self.len();
+                    i = (i + 1) % self.n_points();
                     f(i, self.point(i));
                     if i == *to {
                         break;
