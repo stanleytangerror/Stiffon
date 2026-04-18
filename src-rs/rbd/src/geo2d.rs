@@ -15,19 +15,29 @@ const EPS: f64 = 1e-12;
 
 // --- Geometry ---
 
+#[derive(Clone, Copy, Debug)]
+pub struct Rect2d {
+    pub half_extents: Vec2,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Circle2d {
+    pub radius: f64,
+}
+
 #[derive(Clone, Debug)]
 pub enum Geometry2d {
-    Rectangle { half_extents: Vec2 },
-    Circle { radius: f64 },
+    Rectangle(Rect2d),
+    Circle(Circle2d),
     Convex { shape: Convex2d },
 }
 
 impl Geometry2d {
     pub fn rectangle(half_extents: Vec2) -> Self {
-        Geometry2d::Rectangle { half_extents }
+        Geometry2d::Rectangle(Rect2d { half_extents })
     }
     pub fn circle(radius: f64) -> Self {
-        Geometry2d::Circle { radius }
+        Geometry2d::Circle(Circle2d { radius })
     }
     pub fn convex(points: &[Vec2]) -> Self {
         Geometry2d::Convex { shape: Convex2d::build(points) }
