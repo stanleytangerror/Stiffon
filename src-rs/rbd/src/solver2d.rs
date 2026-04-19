@@ -431,6 +431,26 @@ impl ConstraintBasic for RevoluteJoint2d {
     }
 }
 
+impl ConstraintBasic for ContactConstraint2d {
+    fn gen_cons_data(&self, bodies: &Vec<Body2d>, dt: f64) -> Vec<Cons2dData> {
+        let body_A = &bodies[self.body_A_id];
+        let body_B = &bodies[self.body_B_id];
+
+        let p_A = body_A.pose.transform_position(self.local_pos_A);
+        let p_B = body_B.pose.transform_position(self.local_pos_B);
+
+        let normal = body_A.pose.transform_vector(self.normal);
+
+        let mut result = Vec::<Cons2dData>::new();
+
+        result.push(gen_cons_data_pos1d_limit_min(self.body_A_id, self.body_B_id, body_A, body_B, normal, p_A, p_B, 0.0, dt));
+
+        result
+    }
+
+    fn step(&mut self, dt: f64) {}
+}
+
 pub struct SequentialImpulseSolver2d {
     pub pos_iter_count: usize,
     pub vel_iter_count: usize,
@@ -447,10 +467,16 @@ impl SequentialImpulseSolver2d {
         SequentialImpulseSolver2d { pos_iter_count: 5, vel_iter_count: 2, delta_v: vec![Vec2::ZEROS; 0], delta_𝜔: vec![0.0; 0], accum_lambda: vec![0.0; 0], ext_dv: vec![Vec2::ZEROS; 0], ext_d𝜔: vec![0.0; 0] }
     }
 
-    pub fn pos_iteration(&mut self, bodies: &Vec<Body2d>, constraints: &Vec<Box<dyn ConstraintBasic>>, dt: f64) -> (Vec<Vec2>, Vec<f64>) {
+    pub fn pos_iteration(
+        &mut self,
+        bodies: &Vec<Body2d>,
+        contact_constraints: &[Box<dyn ConstraintBasic>],
+        constraints: &[Box<dyn ConstraintBasic>],
+        dt: f64,
+    ) -> (Vec<Vec2>, Vec<f64>) {
 
         let mut constraint_data = Vec::<Cons2dData>::new();
-        for c in constraints {
+        for c in contact_constraints.iter().chain(constraints.iter()) {
             let c_data = c.gen_cons_data(bodies, dt);
             for cd in c_data {
                 match cd {
@@ -542,10 +568,16 @@ impl SequentialImpulseSolver2d {
         (v_new, 𝜔_new)
     }
 
-    pub fn vel_iteration(&mut self, bodies: &Vec<Body2d>, constraints: &Vec<Box<dyn ConstraintBasic>>, dt: f64) -> (Vec<Vec2>, Vec<f64>) {
+    pub fn vel_iteration(
+        &mut self,
+        bodies: &Vec<Body2d>,
+        contact_constraints: &[Box<dyn ConstraintBasic>],
+        constraints: &[Box<dyn ConstraintBasic>],
+        dt: f64,
+    ) -> (Vec<Vec2>, Vec<f64>) {
 
         let mut constraint_data = Vec::<Cons2dData>::new();
-        for c in constraints {
+        for c in contact_constraints.iter().chain(constraints.iter()) {
             let c_data = c.gen_cons_data(bodies, dt);
             for cd in c_data {
                 match cd {
@@ -637,14 +669,20 @@ impl SequentialImpulseSolver2d {
         (v_new, 𝜔_new)
     }
 
-    pub fn solve(&mut self, bodies: &mut Vec<Body2d>, constraints: &Vec<Box<dyn ConstraintBasic>>, dt: f64) {
-        let (v_new, 𝜔_new) = self.pos_iteration(bodies, constraints, dt);
+    pub fn solve(
+        &mut self,
+        bodies: &mut Vec<Body2d>,
+        contact_constraints: &[Box<dyn ConstraintBasic>],
+        constraints: &[Box<dyn ConstraintBasic>],
+        dt: f64,
+    ) {
+        let (v_new, 𝜔_new) = self.pos_iteration(bodies, contact_constraints, constraints, dt);
         for i in 0..bodies.len() {
             bodies[i].pose.origin += v_new[i] * dt;
             bodies[i].pose.angle += 𝜔_new[i] * dt;
         }
 
-        let (v_new, 𝜔_new) = self.vel_iteration(bodies, constraints, dt);
+        let (v_new, 𝜔_new) = self.vel_iteration(bodies, contact_constraints, constraints, dt);
         for i in 0..bodies.len() {
             bodies[i].v = v_new[i];
             bodies[i].𝜔 = 𝜔_new[i];

@@ -1,5 +1,7 @@
 #![allow(incomplete_features)]
 
+pub const EPS: f64 = 1e-12;
+
 use num_traits::{Zero, One, Float};
 use std::ops::Range;
 
@@ -63,7 +65,10 @@ impl<T: FloatNum, const N: usize> TVec<T, N> {
         TMat::<T, N, 1> { cols: [data] }
     }
     pub fn norm(self) -> T {
-        (self.cols[0].iter().map(|x: &T| *x * *x).sum::<T>()).sqrt()
+        self.norm_sqr().sqrt()
+    }
+    pub fn norm_sqr(self) -> T {
+        self.cols[0].iter().map(|x: &T| *x * *x).sum()
     }
     pub fn normalize(self) -> Self {
         self * (T::ONE / self.norm())

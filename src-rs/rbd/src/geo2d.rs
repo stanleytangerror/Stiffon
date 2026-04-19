@@ -9,9 +9,7 @@ use std::collections::BinaryHeap;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use crate::math::*;
-
-const EPS: f64 = 1e-12;
-
+use crate::mvec;
 
 // --- Geometry ---
 
@@ -40,7 +38,7 @@ impl Geometry2d {
         Geometry2d::Circle(Circle2d { radius })
     }
     pub fn convex(points: &[Vec2]) -> Self {
-        Geometry2d::Convex { shape: Convex2d::build(points) }
+        Geometry2d::Convex { shape: Convex2d::build_from_points(points) }
     }
 }
 
@@ -50,7 +48,22 @@ pub struct Convex2d {
 }
 
 impl Convex2d {
-    fn build(points: &[Vec2]) -> Self {
+    /// Axis-aligned rectangle centered at the origin, from half extents (local space).
+    pub fn build_from_aabb(half_extents: Vec2) -> Self {
+        let hx = half_extents.x();
+        let hy = half_extents.y();
+
+        Self {
+            ccw_points: [
+                mvec!(-hx, -hy),
+                mvec!(hx, -hy),
+                mvec!(hx, hy),
+                mvec!(-hx, hy),
+            ].to_vec(),
+        }
+    }
+
+    fn build_from_points(points: &[Vec2]) -> Self {
         if points.len() < 3 {
             panic!("Convex2d must have at least 3 points");
         }
@@ -109,6 +122,62 @@ impl Convex2d {
 
     pub fn point(&self, index: usize) -> Vec2 {
         self.ccw_points[(index % self.n_points() + self.n_points()) % self.n_points()]
+    }
+
+    pub fn point_inside(&self, p: Vec2) -> bool {
+        for i in 0..self.n_points() {
+            let p0 = self.point(i);
+            let p1 = self.point((i + 1) % self.n_points());
+
+            if !to_the_left_of_ray(p, p0, p1) {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn closest_point(&self, p: Vec2) -> (usize, f64) {
+        let mut closest_idx = 0;
+        let mut closest_distance_sqr = f64::INFINITY;
+
+        for i in 0..self.n_points() {
+            let dist_sqr = (p - self.point(i)).norm_sqr();
+            if dist_sqr < closest_distance_sqr {
+                closest_distance_sqr = dist_sqr;
+                closest_idx = i;
+            }
+        }
+        (closest_idx, closest_distance_sqr.sqrt())
+    }
+
+    pub fn closest_edge(&self, p: Vec2) -> (usize, usize, f64, f64) {
+        let mut closest_idx = 0;
+        let mut closest_idx2 = 1;
+        let mut closest_dist = f64::INFINITY;
+        let mut t = 0.0;
+        for i in 0..self.n_points() {
+            let p0 = self.point(i);
+            let p1 = self.point((i + 1) % self.n_points());
+
+            let dist = dist_point_to_line(p, p0, p1);
+            if dist < closest_dist {
+                closest_dist = dist;
+                closest_idx = i;
+                closest_idx2 = (i + 1) % self.n_points();
+
+                let p01 = p1 - p0;
+                t = (p - p0).dot(p01) / p01.norm_sqr();
+            }
+        }
+        (closest_idx, closest_idx2, t, closest_dist)
+    }
+
+    pub fn transform(&self, transform: &Transform2d) -> Self {
+        let mut new_points = Vec::new();
+        for i in 0..self.n_points() {
+            new_points.push(transform.transform_position(self.point(i)));
+        }
+        Self { ccw_points: new_points }
     }
 
     fn max_support_point_idx(&self, axis: Vec2, partial: &PartialConvex2d) -> usize {
@@ -250,8 +319,6 @@ fn convex_gjk(convex_a: &Convex2d, convex_b: &Convex2d) -> Option<MinDiffTriangl
         PartialConvex2d::full(), PartialConvex2d::full(), 
         axis);
 
-    println!("sp0: {}, sp1: {}", sp0, sp1);
-
     let to_the_left = to_the_left_of_ray(Vec2::ZEROS, sp0.pos, sp1.pos);
     if to_the_left {
         return convex_gjk_expand_triangle_to_the_left(convex_a, convex_b, sp0, sp1);
@@ -312,11 +379,8 @@ fn convex_epa(convex_a: &Convex2d, convex_b: &Convex2d, tri: &MinDiffTriangle) -
     visited.insert(tri.ccw_points[1]);
     visited.insert(tri.ccw_points[2]);
 
-    println!("heap: {:?}", heap);
-
     loop {
         let closest_edge = heap.pop().unwrap();
-        println!("pop: {:?}", closest_edge);
 
         let p0 = closest_edge.p0;
         let p1 = closest_edge.p1;
@@ -332,35 +396,45 @@ fn convex_epa(convex_a: &Convex2d, convex_b: &Convex2d, tri: &MinDiffTriangle) -
         }
         
         visited.insert(p2);
-        println!("new point: {:?}", p2);
 
         // origin is to the left of the edge p0->p1, p2 is to the right of the edge p1->p2
         // so we need to add the edge p1->p2 to the heap p0->p2 and p2->p1
-        let new_edge = MinDiffEdgeAndDist::new(&p0, &p2);
-        println!("new_edge: {:?}", new_edge);
-        heap.push(new_edge);
-        let new_edge = MinDiffEdgeAndDist::new(&p2, &p1);
-        println!("new_edge: {:?}", new_edge);
-        heap.push(new_edge);
+        heap.push(MinDiffEdgeAndDist::new(&p0, &p2));
+        heap.push(MinDiffEdgeAndDist::new(&p2, &p1));
     }
 
     panic!("should not reach here");
 }
 
-struct Convex2dContact {
-    p_a: Vec2,
-    p_b: Vec2,
-    sp_vec: Vec2,
-    index_p0_a: usize,
-    index_p1_a: usize,    
-    index_p0_b: usize,
-    index_p1_b: usize,
-    t: f64,
+pub struct Convex2dContact {
+    pub p_a: Vec2,
+    pub p_b: Vec2,
+    pub sp_vec: Vec2, // separation vector
+    pub index_p0_a: usize,
+    pub index_p1_a: usize,    
+    pub index_p0_b: usize,
+    pub index_p1_b: usize,
+    pub t: f64,
+}
+
+pub struct CircleConvex2dContact {
+    pub p_circle: Vec2,
+    pub p_convex: Vec2,
+    pub sp_vec: Vec2, // separation vector
+    pub index_p0_convex: usize,
+    pub index_p1_convex: usize,
+    pub t: f64,
+}
+
+pub struct CircleCircle2dContact {
+    pub p_a: Vec2,
+    pub p_b: Vec2,
+    pub sp_vec: Vec2, // separation vector
 }
 
 fn get_convex_contact_from_minkowski_diff_edge(convex_a: &Convex2d, convex_b: &Convex2d, edge: &MinDiffEdgeAndDist) -> Convex2dContact {
-    let d = (-edge.p0.pos).dot(edge.p1.pos - edge.p0.pos);
     let edge_len = (edge.p1.pos - edge.p0.pos).norm();
+    let d = (-edge.p0.pos).dot((edge.p1.pos - edge.p0.pos).normalize());
 
     if edge_len < EPS {
         panic!("edge is too short");
@@ -406,11 +480,8 @@ fn convex_gjk_expand_triangle_to_the_left(convex_a: &Convex2d, convex_b: &Convex
         return None;
     }
 
-    println!("expand sp2: {}", sp2);
-
     if almost_same_line(sp0.pos, sp1.pos, sp2.pos, EPS) {
         // same line, no intersection
-        println!("same line, no intersection");
         return None;
     }
 
@@ -462,7 +533,7 @@ fn almost_to_the_left_of_ray(p: Vec2, v0: Vec2, v1: Vec2, eps: f64) -> bool {
 }
 
 
-fn contact_convex_convex(convex_a: &Convex2d, convex_b: &Convex2d) -> Option<Convex2dContact> {
+pub fn contact_convex_convex(convex_a: &Convex2d, convex_b: &Convex2d) -> Option<Convex2dContact> {
     let tri = convex_gjk(convex_a, convex_b);
     if tri.is_none() {
         return None;
@@ -475,13 +546,67 @@ fn contact_convex_convex(convex_a: &Convex2d, convex_b: &Convex2d) -> Option<Con
     Some(contact)
 }
 
+pub fn contact_circle_convex(circle: &Circle2d, circle_center: Vec2, convex: &Convex2d) -> Option<CircleConvex2dContact> {
+
+    let (v_idx, v_dist) = convex.closest_point(circle_center);
+    let (mut e_p0, mut e_p1, mut e_t, mut e_dist) = convex.closest_edge(circle_center);
+
+    let center_inside_convex = convex.point_inside(circle_center);
+
+    if !center_inside_convex && v_dist > circle.radius + EPS && e_dist > circle.radius + EPS {
+        return None;
+    }
+
+    if v_dist <= e_dist {
+        e_p0 = v_idx;
+        e_p1 = (v_idx + 1) % convex.n_points();
+        e_t = 0.0;
+        e_dist = v_dist;
+    }
+
+    let p_convex = convex.point(e_p0) * (1.0 - e_t) + convex.point(e_p1) * e_t;
+
+    let p_center_dist = (p_convex - circle_center).norm();
+    let dir = if p_center_dist > EPS { (p_convex - circle_center).normalize() } else { Vec2::unit_x() };
+    let p_circle = circle_center - dir * circle.radius;
+    let sp_vec = p_circle - p_convex;
+
+    Some(CircleConvex2dContact {
+        p_circle,
+        p_convex,
+        sp_vec,
+        index_p0_convex: e_p0,
+        index_p1_convex: e_p1,
+        t: e_t,
+    })
+}
+
+pub fn contact_circle_circle(circle0: &Circle2d, circle1: &Circle2d, circle_center0: Vec2, circle_center1: Vec2) -> Option<CircleCircle2dContact> {
+    let disp = circle_center0 - circle_center1;
+    let dist = disp.norm();
+    if dist > circle0.radius + circle1.radius + EPS {
+        return None;
+    }
+
+    let dir = if dist > EPS { disp.normalize() } else { Vec2::unit_x() };
+    let p_a = circle_center0 - dir * circle0.radius;
+    let p_b = circle_center1 + dir * circle1.radius;
+    let sp_vec = p_a - p_b;
+
+    Some(CircleCircle2dContact {
+        p_a: p_a,
+        p_b: p_b,
+        sp_vec: sp_vec,
+    })
+}
+
 #[cfg(test)]
 mod convex_gjk_tests {
     use super::*;
     use crate::{mvec, rbd2d::PointJoint2d};
 
     fn unit_square_ccw() -> Convex2d {
-        Convex2d::build(&[
+        Convex2d::build_from_points(&[
             mvec!(-1.0, -1.0),
             mvec!(-1.0, 1.0),
             mvec!(1.0, 1.0),
@@ -490,7 +615,7 @@ mod convex_gjk_tests {
     }
 
     fn triangle_ccw() -> Convex2d {
-        Convex2d::build(&[
+        Convex2d::build_from_points(&[
             mvec!(0.0, 0.0),
             mvec!(4.0, 0.0),
             mvec!(2.0, 3.0),
@@ -518,7 +643,7 @@ mod convex_gjk_tests {
     #[test]
     fn convex_gjk_offset_overlapping_squares_returns_triangle() {
         let a = unit_square_ccw();
-        let b = Convex2d::build(&[
+        let b = Convex2d::build_from_points(&[
             mvec!(0.0, 0.0),
             mvec!(0.0, 2.0),
             mvec!(2.0, 2.0),
@@ -541,7 +666,7 @@ mod convex_gjk_tests {
     #[test]
     fn convex_epa_returns_correct_distance() {
         let a = unit_square_ccw();
-        let b = Convex2d::build(&[
+        let b = Convex2d::build_from_points(&[
             mvec!(0.0, 0.0),
             mvec!(0.0, 2.0),
             mvec!(2.0, 2.0),
@@ -551,6 +676,76 @@ mod convex_gjk_tests {
         assert!(!tri.is_none(), "overlapping shapes should yield a triangle");
         let edge_and_dist = convex_epa(&a, &b, &tri.unwrap());
         assert!((edge_and_dist.dist - 1.0).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod contact_circle_convex_tests {
+    use super::*;
+    use crate::mvec;
+
+    fn assert_contact_consistent(circle: &Circle2d, center: Vec2, contact: &CircleConvex2dContact) {
+        let r = (contact.p_circle - center).norm();
+        assert!(
+            (r - circle.radius).abs() < 1e-9,
+            "contact point on circle should be at radius distance from center: got {r}, radius {}",
+            circle.radius
+        );
+        assert!((contact.sp_vec - (contact.p_circle - contact.p_convex)).norm() < 1e-9);
+        let u = contact.p_convex - center;
+        let n = u.norm();
+        if n > EPS {
+            assert!(((contact.p_circle - center).normalize() - u.normalize()).norm() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn center_outside_convex_returns_none() {
+        let circle = Circle2d { radius: 1.0 };
+        let square = Convex2d::build_from_aabb(mvec!(1.0, 1.0));
+        let center = mvec!(3.0, 0.0);
+        assert!(contact_circle_convex(&circle, center, &square).is_none());
+    }
+
+    #[test]
+    fn center_inside_but_circle_fully_inside_without_touching_returns_none() {
+        let circle = Circle2d { radius: 0.5 };
+        let square = Convex2d::build_from_aabb(mvec!(2.0, 2.0));
+        let center = mvec!(0.0, 0.0);
+        assert!(contact_circle_convex(&circle, center, &square).is_none());
+    }
+
+    #[test]
+    fn circle_center_inside_touching_square_boundary_returns_some() {
+        let circle = Circle2d { radius: 1.0 };
+        let square = Convex2d::build_from_aabb(mvec!(1.0, 1.0));
+        let center = mvec!(0.0, 0.0);
+        let c = contact_circle_convex(&circle, center, &square).expect("circle should touch boundary");
+        assert_contact_consistent(&circle, center, &c);
+    }
+
+    #[test]
+    fn offset_center_inside_touching_returns_some() {
+        let circle = Circle2d { radius: 0.25 };
+        let square = Convex2d::build_from_aabb(mvec!(1.0, 1.0));
+        let center = mvec!(0.5, 0.0);
+        let c = contact_circle_convex(&circle, center, &square).expect("circle should touch boundary");
+        assert_contact_consistent(&circle, center, &c);
+    }
+
+    #[test]
+    fn triangle_convex_contact_consistent() {
+        let circle = Circle2d { radius: 0.15 };
+        let tri = Convex2d::build_from_points(&[
+            mvec!(0.0, 0.0),
+            mvec!(4.0, 0.0),
+            mvec!(2.0, 3.0),
+        ]);
+        // Near the base; distance to boundary ~0.1, so the circle reaches the hull.
+        let center = mvec!(2.0, 0.1);
+        assert!(tri.point_inside(center));
+        let c = contact_circle_convex(&circle, center, &tri).expect("should touch triangle boundary");
+        assert_contact_consistent(&circle, center, &c);
     }
 }
 

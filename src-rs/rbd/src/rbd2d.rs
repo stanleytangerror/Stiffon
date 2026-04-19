@@ -14,6 +14,7 @@ use crate::v_concat;
 use crate::d_concat;
 use crate::solver2d::*;
 use crate::geo2d::*;
+use crate::contact2d::ContactDetect;
 
 // --- Body2d ---
 pub struct Body2d {
@@ -270,10 +271,48 @@ impl RevoluteJoint2d {
     }
 }
 
+pub struct ContactConstraint2d {
+    pub body_A_id: usize,
+    pub body_B_id: usize,
+    pub local_pos_A: Vec2,
+    pub local_pos_B: Vec2,
+    pub normal: Vec2,
+    pub depth: f64,
+}
+
+impl ContactConstraint2d {
+    pub fn new(bodies: &Vec<Body2d>, 
+        body_A_id: usize, body_B_id: usize, 
+        pos_world_A: Vec2, pos_world_B: Vec2, 
+        separate_vec_world: Vec2
+    ) -> Self {
+
+        let depth = separate_vec_world.norm();
+        let normal = if depth > EPS { separate_vec_world.normalize() } else { Vec2::unit_x() };
+
+        let body_A = &bodies[body_A_id];
+        let body_B = &bodies[body_B_id];
+
+        let local_pos_A = body_A.pose.inv().transform_position(pos_world_A);
+        let local_pos_B = body_B.pose.inv().transform_position(pos_world_B);
+
+        ContactConstraint2d {
+            body_A_id,
+            body_B_id,
+            local_pos_A,
+            local_pos_B,
+            normal,
+            depth,
+        }
+    }
+}
+
 pub struct Scene2d {
     pub bodies: Vec<Body2d>,
+    contact_detect: ContactDetect,
     gravity: Vec2,
     constraints: Vec<Box<dyn ConstraintBasic>>,
+    contact_constraints: Vec<Box<dyn ConstraintBasic>>,
     solver: SequentialImpulseSolver2d,
 }
 
@@ -281,8 +320,10 @@ impl Scene2d {
     pub fn new() -> Self {
         Scene2d {
             bodies: Vec::new(),
+            contact_detect: ContactDetect::new(),
             gravity: mvec!(0.0, -9.8),
             constraints: Vec::new(),
+            contact_constraints: Vec::new(),
             solver: SequentialImpulseSolver2d::new(),
         }
     }
@@ -294,6 +335,7 @@ impl Scene2d {
 
     pub fn add_body(&mut self, body: Body2d) -> usize {
         let index = self.bodies.len();
+        self.contact_detect.on_add_body(index, &body.geometry);
         self.bodies.push(body);
         index
     }
@@ -357,6 +399,9 @@ impl Scene2d {
     }
 
     pub fn step(&mut self, dt: f64) {
+
+        self.contact_constraints = self.contact_detect.step(&self.bodies);
+
         for body in &mut self.bodies {
             body.apply_gravity(self.gravity);
         }
@@ -365,7 +410,12 @@ impl Scene2d {
             constraint.step(dt);
         }
 
-        self.solver.solve(&mut self.bodies, &self.constraints, dt);
+        self.solver.solve(
+            &mut self.bodies,
+            &self.contact_constraints,
+            &self.constraints,
+            dt,
+        );
 
         for body in &mut self.bodies {
             body.f_ext = Vec2::ZEROS;

@@ -8,6 +8,7 @@
 mod math;
 mod geo2d;
 mod rbd2d;
+mod contact2d;
 mod draw2d;
 mod solver2d;
 
@@ -352,17 +353,49 @@ impl Rbd2dSample for Barrier2dSample {
 }
 
 
+struct SimpleContact2dSample {
+}
+
+impl Rbd2dSample for SimpleContact2dSample {
+    fn setup(&self, solver: &mut Scene2d) {
+        let body1 = solver.add_body(Body2d::new(
+            1.0,
+            1.0,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(Vec2::ZEROS, 0.0),
+            Geometry2d::convex(&[mvec!(1.7, 0.0), mvec!(-1.7, 0.0), mvec!(1.5, 0.2), mvec!(1.5, -0.2), mvec!(-1.5, -0.2), mvec!(-1.5, 0.2)]),
+        ));
+        
+        let body2 = solver.add_body(Body2d::new(
+            INFINITY,
+            INFINITY,
+            Vec2::ZEROS,
+            0.0,
+            Transform2d::new(mvec!(0.0, -3.0), 0.0),
+            Geometry2d::rectangle(mvec!(5.0, 0.2)),
+        ));
+    
+        // let cons1 = solver.add_point_joint(body1, body2, mvec!(1.5, 0.0), mvec!(1.5, 0.0));
+    }
+
+    fn step(&self, solver: &mut Scene2d, dt: f64) {
+        solver.step(dt);
+    }
+}
+
+
 #[macroquad::main("rbd2d")]
 async fn main() {
     let mut scene = Scene2d::new();
-    let sample = PointJoint2dSample {};
+    let sample = SimpleContact2dSample {};
     sample.setup(&mut scene);
 
     let mut draw2d = Draw2d::new();
     draw2d.set_camera_width(50.0);
 
     loop {
-        sample.step(&mut scene, 0.01);
+        sample.step(&mut scene, 0.004);
     
         draw2d.draw(&scene);
 
